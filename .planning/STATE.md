@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-09T01:07:24.401Z"
+last_activity: 2026-03-09 -- Completed 02-02 InventorySkewCalculator
+progress:
+  total_phases: 3
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 4
+  percent: 80
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: completed
 stopped_at: Phase 2 context gathered
 last_updated: "2026-03-09T01:05:18.119Z"
 last_activity: 2026-03-09 -- Completed 01-02 Config and FeedStateManager Integration
 progress:
-  total_phases: 3
+  [████████░░] 80%
   completed_phases: 1
   total_plans: 5
   completed_plans: 3
@@ -66,6 +82,7 @@ Progress: [██████░░░░] 60%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 02 P01 | 3min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -80,6 +97,9 @@ Recent decisions affecting current work:
 - 500ms stale check interval for 2s threshold (4x Nyquist sampling rate)
 - Linear skew formula: skewBps = -(positionUsd/maxPositionUsd) * effectiveSpreadBps
 - Normalize -0 to 0 using || 0 for clean zero-position output
+- [Phase 02]: Extracted computeWeightedMid as pure exported function for direct testing without WebSocket
+- [Phase 02]: Population stddev (N divisor) for volatility - avoids overstating with small sample windows
+- [Phase 02]: Raw (non-annualized) stddev for bps values directly comparable to configured spread settings
 
 ### Pending Todos
 
@@ -91,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T01:04:40Z
-Stopped at: Completed 02-02-PLAN.md
-Resume file: .planning/phases/02-quote-intelligence/02-02-SUMMARY.md
+Last session: 2026-03-09T01:07:24.397Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

@@ -14,11 +14,15 @@ export interface QuotingContext {
 	readonly fairPrice: number;
 	readonly positionState: PositionState;
 	readonly allowedSides: readonly ("bid" | "ask")[];
+	readonly effectiveSpreadBps: number;
+	readonly skewBps: number;
 }
 
 export interface PositionConfig {
 	readonly closeThresholdUsd: number; // Trigger close mode when position >= this
 	readonly syncIntervalMs: number;
+	readonly inventorySkewEnabled: boolean;
+	readonly maxPositionUsd: number;
 }
 
 export class PositionTracker {
@@ -93,14 +97,25 @@ export class PositionTracker {
 		);
 	}
 
-	getQuotingContext(fairPrice: number): QuotingContext {
+	getQuotingContext(
+		fairPrice: number,
+		effectiveSpreadBps: number,
+		skewBps: number,
+		pauseIncreasing = false,
+	): QuotingContext {
 		const positionState = this.getState(fairPrice);
-		const allowedSides = this.getAllowedSides(positionState);
+		const allowedSides = this.getAllowedSides(positionState, pauseIncreasing);
 		return {
 			fairPrice,
 			positionState,
 			allowedSides,
+			effectiveSpreadBps,
+			skewBps: positionState.isCloseMode ? 0 : skewBps,
 		};
+	}
+
+	getPositionState(fairPrice: number): PositionState {
+		return this.getState(fairPrice);
 	}
 
 	private getState(fairPrice: number): PositionState {
@@ -117,13 +132,29 @@ export class PositionTracker {
 		};
 	}
 
-	private getAllowedSides(state: PositionState): ("bid" | "ask")[] {
-		// Close mode: only allow reducing
+	private getAllowedSides(
+		state: PositionState,
+		pauseIncreasing: boolean,
+	): ("bid" | "ask")[] {
+		// Layer 1: Close mode - only allow reducing (highest priority)
 		if (state.isCloseMode) {
 			return state.isLong ? ["ask"] : ["bid"];
 		}
 
-		// Normal: both sides
+		// Layer 2: Inventory skew pause - remove the increasing side
+		if (this.config.inventorySkewEnabled && pauseIncreasing) {
+			if (state.isLong) {
+				// Long position: buying increases, so remove bid
+				return ["ask"];
+			}
+			if (state.sizeBase < 0) {
+				// Short position: selling increases, so remove ask
+				return ["bid"];
+			}
+			// Flat position with pauseIncreasing shouldn't happen, but allow both
+		}
+
+		// Layer 3: Normal - both sides
 		return ["bid", "ask"];
 	}
 

@@ -27,6 +27,32 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.haltWindowMs).toBe(600_000);
   });
 
+  // Volatility fields
+  it('includes volatilityEnabled with value true', () => {
+    expect(DEFAULT_CONFIG.volatilityEnabled).toBe(true);
+  });
+
+  it('includes volatilityWindowMs with value 600000', () => {
+    expect(DEFAULT_CONFIG.volatilityWindowMs).toBe(600_000);
+  });
+
+  it('includes volatilitySampleIntervalMs with value 60000', () => {
+    expect(DEFAULT_CONFIG.volatilitySampleIntervalMs).toBe(60_000);
+  });
+
+  it('includes volatilityMultiplier with value 1.5', () => {
+    expect(DEFAULT_CONFIG.volatilityMultiplier).toBe(1.5);
+  });
+
+  // Inventory skew fields
+  it('includes inventorySkewEnabled with value true', () => {
+    expect(DEFAULT_CONFIG.inventorySkewEnabled).toBe(true);
+  });
+
+  it('includes maxPositionUsd with value 10', () => {
+    expect(DEFAULT_CONFIG.maxPositionUsd).toBe(10);
+  });
+
   // Existing fields preserved
   it('preserves existing default values', () => {
     expect(DEFAULT_CONFIG.spreadBps).toBe(8);

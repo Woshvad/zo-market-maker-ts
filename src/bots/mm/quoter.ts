@@ -14,7 +14,6 @@ export class Quoter {
 	constructor(
 		priceDecimals: number,
 		sizeDecimals: number,
-		private readonly spreadBps: number,
 		private readonly takeProfitBps: number,
 		private readonly orderSizeUsd: number,
 	) {
@@ -26,7 +25,11 @@ export class Quoter {
 	getQuotes(ctx: QuotingContext, bbo: BBO | null): Quote[] {
 		const { fairPrice, positionState, allowedSides } = ctx;
 		const fair = new Decimal(fairPrice);
-		const bps = positionState.isCloseMode ? this.takeProfitBps : this.spreadBps;
+		const skewShift = fair.mul(ctx.skewBps).div(10000);
+		const effectiveFair = fair.add(skewShift);
+		const bps = positionState.isCloseMode
+			? this.takeProfitBps
+			: ctx.effectiveSpreadBps;
 		const spreadAmount = fair.mul(bps).div(10000);
 
 		// In close mode: limit size to position size
@@ -46,7 +49,7 @@ export class Quoter {
 		const quotes: Quote[] = [];
 
 		if (allowedSides.includes("bid")) {
-			let bidPrice = this.alignPrice(fair.sub(spreadAmount), "floor");
+			let bidPrice = this.alignPrice(effectiveFair.sub(spreadAmount), "floor");
 
 			// Clamp bid to not exceed best ask (don't cross spread)
 			if (bbo && bidPrice.gte(bbo.bestAsk)) {
@@ -66,7 +69,7 @@ export class Quoter {
 		}
 
 		if (allowedSides.includes("ask")) {
-			let askPrice = this.alignPrice(fair.add(spreadAmount), "ceil");
+			let askPrice = this.alignPrice(effectiveFair.add(spreadAmount), "ceil");
 
 			// Clamp ask to not go below best bid (don't cross spread)
 			if (bbo && askPrice.lte(bbo.bestBid)) {

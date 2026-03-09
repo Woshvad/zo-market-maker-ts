@@ -12,16 +12,16 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **FEED-01**: Bot cancels all open orders within 1 update cycle when Binance WS has not sent a message in >2 seconds
 - [x] **FEED-02**: Bot automatically resumes quoting when Binance feed recovers, only after receiving N fresh prices (not on first single message)
 - [x] **FEED-03**: Bot uses a state machine (WARMING_UP | QUOTING | STALE | HALTED) to prevent TOCTOU races between stale detection and order placement
-- [ ] **FEED-04**: Bot computes volume-weighted mid-price from Binance bookTicker bid/ask sizes instead of simple arithmetic mid
+- [x] **FEED-04**: Bot computes volume-weighted mid-price from Binance bookTicker bid/ask sizes instead of simple arithmetic mid
 - [x] **FEED-05**: Stale price protection is toggleable via config flag `stalePriceEnabled` (default: true)
 
 ### Spread Management
 
-- [ ] **SPRD-01**: Bot calculates rolling realized volatility from 1-minute log-returns over a configurable window (default 10 minutes)
-- [ ] **SPRD-02**: Effective spread = max(configuredSpreadBps, volatility * volatilityMultiplier) where default multiplier is 1.5
+- [x] **SPRD-01**: Bot calculates rolling realized volatility from 1-minute log-returns over a configurable window (default 10 minutes)
+- [x] **SPRD-02**: Effective spread = max(configuredSpreadBps, volatility * volatilityMultiplier) where default multiplier is 1.5
 - [ ] **SPRD-03**: Bot displays current volatility and effective spread in status output
-- [ ] **SPRD-04**: Volatility-aware spreads are toggleable via config flag `volatilityEnabled` (default: true)
-- [ ] **SPRD-05**: When volatility data is insufficient (warmup period), bot uses configured spread as floor
+- [x] **SPRD-04**: Volatility-aware spreads are toggleable via config flag `volatilityEnabled` (default: true)
+- [x] **SPRD-05**: When volatility data is insufficient (warmup period), bot uses configured spread as floor
 
 ### Inventory Management
 
@@ -85,13 +85,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FEED-01 | Phase 1 | Complete |
 | FEED-02 | Phase 1 | Complete |
 | FEED-03 | Phase 1 | Complete |
-| FEED-04 | Phase 2 | Pending |
+| FEED-04 | Phase 2 | Complete |
 | FEED-05 | Phase 1 | Complete |
-| SPRD-01 | Phase 2 | Pending |
-| SPRD-02 | Phase 2 | Pending |
+| SPRD-01 | Phase 2 | Complete |
+| SPRD-02 | Phase 2 | Complete |
 | SPRD-03 | Phase 2 | Pending |
-| SPRD-04 | Phase 2 | Pending |
-| SPRD-05 | Phase 2 | Pending |
+| SPRD-04 | Phase 2 | Complete |
+| SPRD-05 | Phase 2 | Complete |
 | INVT-01 | Phase 2 | Complete |
 | INVT-02 | Phase 2 | Complete |
 | INVT-03 | Phase 2 | Complete |

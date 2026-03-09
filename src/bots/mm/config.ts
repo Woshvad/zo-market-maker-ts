@@ -17,6 +17,12 @@ export interface MarketMakerConfig {
   readonly stalePriceEnabled: boolean // Enable/disable stale price protection
   readonly haltStaleCount: number // Stale events before HALTED
   readonly haltWindowMs: number // Sliding window for counting stale events (ms)
+  readonly volatilityEnabled: boolean // Enable volatility-based spread widening
+  readonly volatilityWindowMs: number // Rolling window for volatility calc
+  readonly volatilitySampleIntervalMs: number // Min interval between vol samples
+  readonly volatilityMultiplier: number // Multiplier for vol -> spread
+  readonly inventorySkewEnabled: boolean // Enable inventory skew
+  readonly maxPositionUsd: number // Max position for skew scaling
 }
 
 // Default configuration values (symbol must be provided)
@@ -36,4 +42,10 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   stalePriceEnabled: true,
   haltStaleCount: 5,
   haltWindowMs: 600_000,
+  volatilityEnabled: true,
+  volatilityWindowMs: 600_000,
+  volatilitySampleIntervalMs: 60_000,
+  volatilityMultiplier: 1.5,
+  inventorySkewEnabled: true,
+  maxPositionUsd: 10,
 }
