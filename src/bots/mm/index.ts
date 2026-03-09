@@ -21,6 +21,7 @@ import {
 import type { MidPrice } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import type { MarketMakerConfig } from "./config.js";
+import { FeedStateManager, type FeedStateCallbacks } from "./feed-state.js";
 import { type PositionConfig, PositionTracker } from "./position.js";
 import { Quoter } from "./quoter.js";
 
@@ -73,6 +74,9 @@ export class MarketMaker {
 	> | null = null;
 	private statusInterval: ReturnType<typeof setInterval> | null = null;
 	private orderSyncInterval: ReturnType<typeof setInterval> | null = null;
+	private feedState: FeedStateManager | null = null;
+	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
+	private haltedWarningInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
 		private readonly config: MarketMakerConfig,
@@ -151,6 +155,40 @@ export class MarketMaker {
 		this.binanceFeed = new BinancePriceFeed(binanceSymbol);
 
 		this.isRunning = true;
+
+		// Initialize feed state manager for stale price protection
+		if (this.config.stalePriceEnabled) {
+			const callbacks: FeedStateCallbacks = {
+				onStale: () => {
+					log.stale("STALE", "Cancelling all orders");
+					this.cancelOrdersAsync();
+				},
+				onRecovery: () => {
+					log.info("Feed recovered - resuming quoting");
+				},
+				onHalted: (reason) => {
+					log.halted(reason);
+					this.cancelOrdersAsync();
+					// Start 30s warning interval
+					if (this.haltedWarningInterval) {
+						clearInterval(this.haltedWarningInterval);
+					}
+					this.haltedWarningInterval = setInterval(() => {
+						log.halted(reason);
+					}, 30_000);
+				},
+			};
+			this.feedState = new FeedStateManager(
+				{
+					staleThresholdMs: this.config.staleThresholdMs,
+					recoveryPriceCount: this.config.recoveryPriceCount,
+					stalePriceEnabled: this.config.stalePriceEnabled,
+					haltStaleCount: this.config.haltStaleCount,
+					haltWindowMs: this.config.haltWindowMs,
+				},
+				callbacks,
+			);
+		}
 	}
 
 	private setupEventHandlers(): void {
@@ -182,6 +220,9 @@ export class MarketMaker {
 	}
 
 	private handleBinancePrice(binancePrice: MidPrice): void {
+		// Always feed timing to state manager
+		this.feedState?.onPrice();
+
 		const zoPrice = this.orderbookStream?.getMidPrice();
 		if (
 			zoPrice &&
@@ -190,12 +231,30 @@ export class MarketMaker {
 			this.fairPriceCalc?.addSample(zoPrice.mid, binancePrice.mid);
 		}
 
-		if (!this.isRunning) return;
-
 		const fairPrice = this.fairPriceCalc?.getFairPrice(binancePrice.mid);
-		if (!fairPrice) {
-			this.logWarmupProgress(binancePrice);
-			return;
+
+		// If state machine is active, use it as the gate
+		if (this.feedState) {
+			if (!fairPrice) {
+				if (this.feedState.getState() === "WARMING_UP") {
+					this.logWarmupProgress(binancePrice);
+				}
+				return;
+			}
+			// Promote to QUOTING on first valid fair price
+			if (this.feedState.getState() === "WARMING_UP") {
+				this.feedState.promoteToQuoting();
+			}
+			if (!this.feedState.canQuote()) {
+				return;
+			}
+		} else {
+			// Original behavior when stalePriceEnabled=false
+			if (!this.isRunning) return;
+			if (!fairPrice) {
+				this.logWarmupProgress(binancePrice);
+				return;
+			}
 		}
 
 		// Log ready on first valid fair price
@@ -262,6 +321,13 @@ export class MarketMaker {
 		this.orderSyncInterval = setInterval(() => {
 			this.syncOrders(user, accountId);
 		}, this.config.orderSyncIntervalMs);
+
+		// Stale price check (500ms interval for 2s threshold -- 4x Nyquist)
+		if (this.feedState) {
+			this.staleCheckInterval = setInterval(() => {
+				this.feedState?.checkStale();
+			}, 500);
+		}
 	}
 
 	private registerShutdownHandlers(): void {
@@ -275,6 +341,15 @@ export class MarketMaker {
 		this.isRunning = false;
 		this.throttledUpdate?.cancel();
 		this.positionTracker?.stopSync();
+
+		if (this.staleCheckInterval) {
+			clearInterval(this.staleCheckInterval);
+			this.staleCheckInterval = null;
+		}
+		if (this.haltedWarningInterval) {
+			clearInterval(this.haltedWarningInterval);
+			this.haltedWarningInterval = null;
+		}
 
 		if (this.statusInterval) {
 			clearInterval(this.statusInterval);
@@ -367,14 +442,20 @@ export class MarketMaker {
 	}
 
 	private logConfig(binanceSymbol: string): void {
-		log.config({
+		const cfg: Record<string, unknown> = {
 			Market: this.marketSymbol,
 			Binance: binanceSymbol,
 			Spread: `${this.config.spreadBps} bps`,
 			"Take Profit": `${this.config.takeProfitBps} bps`,
 			"Order Size": `$${this.config.orderSizeUsd}`,
 			"Close Mode": `>=$${this.config.closeThresholdUsd}`,
-		});
+		};
+		if (this.config.stalePriceEnabled) {
+			cfg["Stale Detection"] = `${this.config.staleThresholdMs}ms threshold`;
+			cfg["Recovery"] = `${this.config.recoveryPriceCount} prices`;
+			cfg["Halt"] = `${this.config.haltStaleCount} stale events in ${this.config.haltWindowMs / 60000}m`;
+		}
+		log.config(cfg);
 	}
 
 	private cancelOrdersAsync(): void {
@@ -418,8 +499,16 @@ export class MarketMaker {
 		const bidStr = bids.map(formatOrder).join(",") || "-";
 		const askStr = asks.map(formatOrder).join(",") || "-";
 
+		const staleInfo = this.feedState?.getStaleInfo();
+		const staleStr = staleInfo
+			? ` | stale: ${staleInfo.count}/${staleInfo.max} in ${staleInfo.windowMs / 60000}m`
+			: "";
+		const feedStateStr = this.feedState
+			? ` | feed: ${this.feedState.getState()}`
+			: "";
+
 		log.info(
-			`STATUS: pos=${pos.toFixed(5)} | bid=[${bidStr}] | ask=[${askStr}]`,
+			`STATUS: pos=${pos.toFixed(5)} | bid=[${bidStr}] | ask=[${askStr}]${feedStateStr}${staleStr}`,
 		);
 	}
 }
