@@ -131,6 +131,23 @@ export const log = {
 		outputFn(format("WARN", `STALE: ${state} | ${detail}`));
 	},
 
+	circuitBreaker(
+		totalPnl: number,
+		realizedPnl: number,
+		unrealizedPnl: number,
+		positionSize: number,
+		avgCost: number,
+		maxLoss: number,
+	): void {
+		if (!shouldLog("warn")) return;
+		outputFn(format(
+			"WARN",
+			`CIRCUIT BREAKER: Total PnL $${totalPnl.toFixed(2)} breached -$${maxLoss.toFixed(2)} threshold | ` +
+			`Realized: $${realizedPnl.toFixed(2)} | Unrealized: $${unrealizedPnl.toFixed(2)} | ` +
+			`Position: ${positionSize.toFixed(6)} @ $${avgCost.toFixed(2)}`
+		));
+	},
+
 	halted(reason: string): void {
 		if (!shouldLog("warn")) return;
 		outputFn(format("WARN", `HALTED: reason=${reason} | Bot is not quoting. Manual restart required.`));

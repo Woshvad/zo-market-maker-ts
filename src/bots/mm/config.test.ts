@@ -53,6 +53,15 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.maxPositionUsd).toBe(10);
   });
 
+  // PnL tracking fields
+  it('includes pnlTrackingEnabled with value true', () => {
+    expect(DEFAULT_CONFIG.pnlTrackingEnabled).toBe(true);
+  });
+
+  it('includes maxDailyLossUsd with value 20', () => {
+    expect(DEFAULT_CONFIG.maxDailyLossUsd).toBe(20);
+  });
+
   // Existing fields preserved
   it('preserves existing default values', () => {
     expect(DEFAULT_CONFIG.spreadBps).toBe(8);

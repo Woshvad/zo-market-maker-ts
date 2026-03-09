@@ -23,6 +23,8 @@ export interface MarketMakerConfig {
   readonly volatilityMultiplier: number // Multiplier for vol -> spread
   readonly inventorySkewEnabled: boolean // Enable inventory skew
   readonly maxPositionUsd: number // Max position for skew scaling
+  readonly pnlTrackingEnabled: boolean // Enable PnL tracking and circuit breaker
+  readonly maxDailyLossUsd: number // Loss threshold (positive number, e.g., 20)
 }
 
 // Default configuration values (symbol must be provided)
@@ -48,4 +50,6 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   volatilityMultiplier: 1.5,
   inventorySkewEnabled: true,
   maxPositionUsd: 10,
+  pnlTrackingEnabled: true,
+  maxDailyLossUsd: 20,
 }
