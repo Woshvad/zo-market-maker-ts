@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-03-09T01:13:36.191Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-09T01:33:25.464Z"
 last_activity: 2026-03-09 -- Completed 02-02 InventorySkewCalculator
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 6
   percent: 80
 ---
 
@@ -84,6 +84,7 @@ Progress: [██████░░░░] 60%
 *Updated after each plan completion*
 | Phase 02 P01 | 3min | 2 tasks | 4 files |
 | Phase 02 P03 | 4min | 2 tasks | 6 files |
+| Phase 03 P01 | 2min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Raw (non-annualized) stddev for bps values directly comparable to configured spread settings
 - [Phase 02]: Skew applied as additive shift to fair price, spread from original fair for consistent width
 - [Phase 02]: Defense-in-depth: close mode zeroes skewBps at caller AND QuotingContext layers
+- [Phase 03]: Average cost basis (not FIFO/LIFO) for PnL tracking
+- [Phase 03]: Position flip splits fill into close-portion and open-portion at fill price
 
 ### Pending Todos
 
@@ -114,6 +117,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T01:13:36.188Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-03-09T01:33:25.461Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

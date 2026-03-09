@@ -33,8 +33,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Loss Protection
 
-- [ ] **LOSS-01**: Bot tracks realized PnL from fill events using average cost basis
-- [ ] **LOSS-02**: Bot computes unrealized PnL by marking current position to fair price
+- [x] **LOSS-01**: Bot tracks realized PnL from fill events using average cost basis
+- [x] **LOSS-02**: Bot computes unrealized PnL by marking current position to fair price
 - [ ] **LOSS-03**: Bot cancels all orders and halts quoting when total PnL (realized + unrealized) drops below -maxDailyLossUsd (default $20)
 - [ ] **LOSS-04**: Circuit breaker halt is logged with clear alert including trigger reason, current PnL, and position state
 - [ ] **LOSS-05**: Circuit breaker is resettable via config flag
@@ -97,8 +97,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INVT-03 | Phase 2 | Complete |
 | INVT-04 | Phase 2 | Complete |
 | INVT-05 | Phase 2 | Complete |
-| LOSS-01 | Phase 3 | Pending |
-| LOSS-02 | Phase 3 | Pending |
+| LOSS-01 | Phase 3 | Complete |
+| LOSS-02 | Phase 3 | Complete |
 | LOSS-03 | Phase 3 | Pending |
 | LOSS-04 | Phase 3 | Pending |
 | LOSS-05 | Phase 3 | Pending |
