@@ -22,8 +22,10 @@ import type { MidPrice } from "../../types.js";
 import { log } from "../../utils/logger.js";
 import type { MarketMakerConfig } from "./config.js";
 import { FeedStateManager, type FeedStateCallbacks } from "./feed-state.js";
+import { calculateInventorySkew } from "./inventory-skew.js";
 import { type PositionConfig, PositionTracker } from "./position.js";
 import { Quoter } from "./quoter.js";
+import { VolatilityTracker } from "./volatility.js";
 
 export type { MarketMakerConfig } from "./config.js";
 
@@ -75,6 +77,7 @@ export class MarketMaker {
 	private statusInterval: ReturnType<typeof setInterval> | null = null;
 	private orderSyncInterval: ReturnType<typeof setInterval> | null = null;
 	private feedState: FeedStateManager | null = null;
+	private volatilityTracker: VolatilityTracker | null = null;
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 	private haltedWarningInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -137,6 +140,8 @@ export class MarketMaker {
 		const positionConfig: PositionConfig = {
 			closeThresholdUsd: this.config.closeThresholdUsd,
 			syncIntervalMs: this.config.positionSyncIntervalMs,
+			inventorySkewEnabled: this.config.inventorySkewEnabled,
+			maxPositionUsd: this.config.maxPositionUsd,
 		};
 
 		this.fairPriceCalc = new FairPriceCalculator(fairPriceConfig);
@@ -144,10 +149,18 @@ export class MarketMaker {
 		this.quoter = new Quoter(
 			market.priceDecimals,
 			market.sizeDecimals,
-			this.config.spreadBps,
 			this.config.takeProfitBps,
 			this.config.orderSizeUsd,
 		);
+
+		// Initialize volatility tracker
+		if (this.config.volatilityEnabled) {
+			this.volatilityTracker = new VolatilityTracker({
+				windowMs: this.config.volatilityWindowMs,
+				sampleIntervalMs: this.config.volatilitySampleIntervalMs,
+				volatilityMultiplier: this.config.volatilityMultiplier,
+			});
+		}
 
 		// Initialize streams
 		this.accountStream = new AccountStream(nord, accountId);
@@ -222,6 +235,7 @@ export class MarketMaker {
 	private handleBinancePrice(binancePrice: MidPrice): void {
 		// Always feed timing to state manager
 		this.feedState?.onPrice();
+		this.volatilityTracker?.onPrice(binancePrice.mid);
 
 		const zoPrice = this.orderbookStream?.getMidPrice();
 		if (
@@ -392,8 +406,27 @@ export class MarketMaker {
 				return;
 			}
 
-			const quotingCtx = this.positionTracker.getQuotingContext(fairPrice);
-			const { positionState } = quotingCtx;
+			// Compute effective spread
+			const effectiveSpreadBps = this.volatilityTracker
+				? this.volatilityTracker.getEffectiveSpreadBps(this.config.spreadBps)
+				: this.config.spreadBps;
+
+			// Compute inventory skew
+			const positionState = this.positionTracker.getPositionState(fairPrice);
+			const skewResult = this.config.inventorySkewEnabled
+				? calculateInventorySkew(
+						positionState.sizeUsd,
+						this.config.maxPositionUsd,
+						effectiveSpreadBps,
+					)
+				: { skewBps: 0, pauseIncreasing: false };
+
+			const quotingCtx = this.positionTracker.getQuotingContext(
+				fairPrice,
+				effectiveSpreadBps,
+				positionState.isCloseMode ? 0 : skewResult.skewBps,
+				skewResult.pauseIncreasing,
+			);
 
 			if (positionState.sizeBase !== 0) {
 				log.position(
@@ -417,7 +450,7 @@ export class MarketMaker {
 			const isClose = positionState.isCloseMode;
 			const spreadBps = isClose
 				? this.config.takeProfitBps
-				: this.config.spreadBps;
+				: effectiveSpreadBps;
 			log.quote(
 				bid?.price.toNumber() ?? null,
 				ask?.price.toNumber() ?? null,
@@ -454,6 +487,13 @@ export class MarketMaker {
 			cfg["Stale Detection"] = `${this.config.staleThresholdMs}ms threshold`;
 			cfg["Recovery"] = `${this.config.recoveryPriceCount} prices`;
 			cfg["Halt"] = `${this.config.haltStaleCount} stale events in ${this.config.haltWindowMs / 60000}m`;
+		}
+		if (this.config.volatilityEnabled) {
+			cfg["Volatility"] =
+				`${this.config.volatilityMultiplier}x, ${this.config.volatilityWindowMs / 60000}m window`;
+		}
+		if (this.config.inventorySkewEnabled) {
+			cfg["Inventory Skew"] = `max $${this.config.maxPositionUsd}`;
 		}
 		log.config(cfg);
 	}
@@ -509,6 +549,36 @@ export class MarketMaker {
 
 		log.info(
 			`STATUS: pos=${pos.toFixed(5)} | bid=[${bidStr}] | ask=[${askStr}]${feedStateStr}${staleStr}`,
+		);
+
+		// Volatility and skew status line
+		const volBps = this.volatilityTracker?.getVolatilityBps();
+		const effSpread =
+			this.volatilityTracker?.getEffectiveSpreadBps(this.config.spreadBps) ??
+			this.config.spreadBps;
+		const volStr = volBps != null ? `${volBps.toFixed(1)}bps` : "warmup";
+		const spreadSource = effSpread > this.config.spreadBps ? "vol" : "config";
+		const binanceMid = this.binanceFeed?.getMidPrice()?.mid ?? 0;
+		const posUsd = pos * (this.fairPriceCalc?.getFairPrice(binanceMid) ?? 0);
+		const skewInfo = this.config.inventorySkewEnabled
+			? (() => {
+					const skew = calculateInventorySkew(
+						posUsd,
+						this.config.maxPositionUsd,
+						effSpread,
+					);
+					const pctStr =
+						this.config.maxPositionUsd > 0
+							? `${((Math.abs(posUsd) / this.config.maxPositionUsd) * 100).toFixed(0)}%`
+							: "0%";
+					const dirStr =
+						posUsd > 0 ? "long" : posUsd < 0 ? "short" : "flat";
+					return ` | skew: ${skew.skewBps.toFixed(1)}bps (${dirStr} ${pctStr})`;
+				})()
+			: "";
+
+		log.info(
+			`VOL: ${volStr} | spread: ${effSpread.toFixed(1)}bps (${spreadSource})${skewInfo}`,
 		);
 	}
 }
