@@ -13,7 +13,7 @@ This milestone adds risk management to an existing market maker bot. The work fl
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Feed Safety** - Stale price protection with state machine, config foundation, and backwards compatibility guarantees (completed 2026-03-09)
-- [ ] **Phase 2: Quote Intelligence** - Volatility-aware spreads, continuous inventory skew, and weighted mid-price
+- [x] **Phase 2: Quote Intelligence** - Volatility-aware spreads, continuous inventory skew, and weighted mid-price (completed 2026-03-09)
 - [ ] **Phase 3: Loss Protection** - PnL tracking from fills and daily loss circuit breaker
 
 ## Phase Details
@@ -73,5 +73,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Feed Safety | 2/2 | Complete   | 2026-03-09 |
-| 2. Quote Intelligence | 0/3 | Not started | - |
+| 2. Quote Intelligence | 3/3 | Complete   | 2026-03-09 |
 | 3. Loss Protection | 0/2 | Not started | - |

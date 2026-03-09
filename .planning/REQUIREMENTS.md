@@ -19,7 +19,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **SPRD-01**: Bot calculates rolling realized volatility from 1-minute log-returns over a configurable window (default 10 minutes)
 - [x] **SPRD-02**: Effective spread = max(configuredSpreadBps, volatility * volatilityMultiplier) where default multiplier is 1.5
-- [ ] **SPRD-03**: Bot displays current volatility and effective spread in status output
+- [x] **SPRD-03**: Bot displays current volatility and effective spread in status output
 - [x] **SPRD-04**: Volatility-aware spreads are toggleable via config flag `volatilityEnabled` (default: true)
 - [x] **SPRD-05**: When volatility data is insufficient (warmup period), bot uses configured spread as floor
 
@@ -28,8 +28,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **INVT-01**: Bot shifts both bid and ask quotes proportionally to current position size, favoring inventory reduction
 - [x] **INVT-02**: Skew is proportional to position as fraction of maxPositionUsd, not raw position USD value
 - [x] **INVT-03**: Bot pauses the inventory-increasing side when skew exceeds 2x the effective spread
-- [ ] **INVT-04**: Continuous skew replaces binary close mode without losing the hard position cap safety guarantee
-- [ ] **INVT-05**: Inventory skew is toggleable via config flag `inventorySkewEnabled` (default: true); when disabled, existing binary close mode behavior is preserved
+- [x] **INVT-04**: Continuous skew replaces binary close mode without losing the hard position cap safety guarantee
+- [x] **INVT-05**: Inventory skew is toggleable via config flag `inventorySkewEnabled` (default: true); when disabled, existing binary close mode behavior is preserved
 
 ### Loss Protection
 
@@ -89,14 +89,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FEED-05 | Phase 1 | Complete |
 | SPRD-01 | Phase 2 | Complete |
 | SPRD-02 | Phase 2 | Complete |
-| SPRD-03 | Phase 2 | Pending |
+| SPRD-03 | Phase 2 | Complete |
 | SPRD-04 | Phase 2 | Complete |
 | SPRD-05 | Phase 2 | Complete |
 | INVT-01 | Phase 2 | Complete |
 | INVT-02 | Phase 2 | Complete |
 | INVT-03 | Phase 2 | Complete |
-| INVT-04 | Phase 2 | Pending |
-| INVT-05 | Phase 2 | Pending |
+| INVT-04 | Phase 2 | Complete |
+| INVT-05 | Phase 2 | Complete |
 | LOSS-01 | Phase 3 | Pending |
 | LOSS-02 | Phase 3 | Pending |
 | LOSS-03 | Phase 3 | Pending |
