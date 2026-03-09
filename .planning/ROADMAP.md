@@ -59,11 +59,11 @@ Plans:
   2. Bot cancels all orders and halts quoting when total PnL (realized + unrealized) drops below the configured loss threshold
   3. Circuit breaker halt produces a clear log alert with trigger reason, PnL breakdown, and position state
   4. Circuit breaker is resettable and PnL tracking is toggleable via config
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — TDD PnlTracker: average cost basis and unrealized PnL with full test coverage
+- [ ] 03-02-PLAN.md — Config, logger, and MarketMaker integration with circuit breaker
 
 ## Progress
 
