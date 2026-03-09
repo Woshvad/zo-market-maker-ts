@@ -10,6 +10,22 @@ const STALE_CHECK_INTERVAL_MS = 10_000;
 
 export type { MidPrice } from "../types.js";
 
+/**
+ * Compute volume-weighted mid-price from best bid/ask and their quantities.
+ * Falls back to simple mid when either quantity is <= 0.
+ */
+export function computeWeightedMid(
+	bid: number,
+	ask: number,
+	bidQty: number,
+	askQty: number,
+): number {
+	if (bidQty <= 0 || askQty <= 0) {
+		return (bid + ask) / 2;
+	}
+	return (bid * askQty + ask * bidQty) / (bidQty + askQty);
+}
+
 export class BinancePriceFeed {
 	private ws: WebSocket | null = null;
 	private latestPrice: MidPrice | null = null;
@@ -48,11 +64,15 @@ export class BinancePriceFeed {
 				const msg = JSON.parse(data.toString()) as {
 					b: string; // best bid
 					a: string; // best ask
+					B: string; // best bid qty
+					A: string; // best ask qty
 				};
 
 				const bid = parseFloat(msg.b);
 				const ask = parseFloat(msg.a);
-				const mid = (bid + ask) / 2;
+				const bidQty = parseFloat(msg.B);
+				const askQty = parseFloat(msg.A);
+				const mid = computeWeightedMid(bid, ask, bidQty, askQty);
 
 				this.latestPrice = {
 					mid,
