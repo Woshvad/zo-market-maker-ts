@@ -12,6 +12,11 @@ export interface MarketMakerConfig {
   readonly statusIntervalMs: number // Interval for status display
   readonly fairPriceWindowMs: number // Window for fair price calculation
   readonly positionSyncIntervalMs: number // Interval for position sync
+  readonly staleThresholdMs: number // Max ms without Binance message before STALE
+  readonly recoveryPriceCount: number // Consecutive prices needed for STALE -> QUOTING
+  readonly stalePriceEnabled: boolean // Enable/disable stale price protection
+  readonly haltStaleCount: number // Stale events before HALTED
+  readonly haltWindowMs: number // Sliding window for counting stale events (ms)
 }
 
 // Default configuration values (symbol must be provided)
@@ -26,4 +31,9 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   statusIntervalMs: 1000,
   fairPriceWindowMs: 5 * 60 * 1000, // 5 minutes
   positionSyncIntervalMs: 5000,
+  staleThresholdMs: 2000,
+  recoveryPriceCount: 5,
+  stalePriceEnabled: true,
+  haltStaleCount: 5,
+  haltWindowMs: 600_000,
 }

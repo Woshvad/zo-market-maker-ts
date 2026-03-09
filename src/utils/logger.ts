@@ -126,6 +126,16 @@ export const log = {
 		}
 	},
 
+	stale(state: string, detail: string): void {
+		if (!shouldLog("warn")) return;
+		outputFn(format("WARN", `STALE: ${state} | ${detail}`));
+	},
+
+	halted(reason: string): void {
+		if (!shouldLog("warn")) return;
+		outputFn(format("WARN", `HALTED: reason=${reason} | Bot is not quoting. Manual restart required.`));
+	},
+
 	shutdown(): void {
 		outputFn(format("INFO", "Shutting down..."));
 	},
