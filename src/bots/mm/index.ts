@@ -25,6 +25,7 @@ import { FeedStateManager, type FeedStateCallbacks } from "./feed-state.js";
 import { calculateInventorySkew } from "./inventory-skew.js";
 import { type PositionConfig, PositionTracker } from "./position.js";
 import { Quoter } from "./quoter.js";
+import { PnlTracker } from "./pnl-tracker.js";
 import { VolatilityTracker } from "./volatility.js";
 
 export type { MarketMakerConfig } from "./config.js";
@@ -78,6 +79,7 @@ export class MarketMaker {
 	private orderSyncInterval: ReturnType<typeof setInterval> | null = null;
 	private feedState: FeedStateManager | null = null;
 	private volatilityTracker: VolatilityTracker | null = null;
+	private pnlTracker: PnlTracker | null = null;
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 	private haltedWarningInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -162,6 +164,11 @@ export class MarketMaker {
 			});
 		}
 
+		// Initialize PnL tracker (process restart resets PnL to zero -- circuit breaker is resettable)
+		if (this.config.pnlTrackingEnabled) {
+			this.pnlTracker = new PnlTracker();
+		}
+
 		// Initialize streams
 		this.accountStream = new AccountStream(nord, accountId);
 		this.orderbookStream = new ZoOrderbookStream(nord, this.marketSymbol);
@@ -169,8 +176,8 @@ export class MarketMaker {
 
 		this.isRunning = true;
 
-		// Initialize feed state manager for stale price protection
-		if (this.config.stalePriceEnabled) {
+		// Initialize feed state manager for stale price protection and circuit breaker halt support
+		if (this.config.stalePriceEnabled || this.config.pnlTrackingEnabled) {
 			const callbacks: FeedStateCallbacks = {
 				onStale: () => {
 					log.stale("STALE", "Cancelling all orders");
@@ -212,6 +219,8 @@ export class MarketMaker {
 		this.accountStream?.setOnFill((fill: FillEvent) => {
 			log.fill(fill.side === "bid" ? "buy" : "sell", fill.price, fill.size);
 			this.positionTracker?.applyFill(fill.side, fill.size, fill.price);
+			this.pnlTracker?.applyFill(fill.side, fill.size, fill.price);
+			this.checkCircuitBreaker();
 			// Cancel all orders when entering close mode
 			if (this.positionTracker?.isCloseMode(fill.price)) {
 				this.cancelOrdersAsync();
@@ -466,11 +475,40 @@ export class MarketMaker {
 				quotes,
 			);
 			this.activeOrders = newOrders;
+
+			this.checkCircuitBreaker();
 		} catch (err) {
 			log.error("Update error:", err);
 			this.activeOrders = [];
 		} finally {
 			this.isUpdating = false;
+		}
+	}
+
+	private checkCircuitBreaker(): void {
+		if (!this.pnlTracker) return;
+		const binanceMid = this.binanceFeed?.getMidPrice()?.mid;
+		if (!binanceMid) return;
+		const fairPrice = this.fairPriceCalc?.getFairPrice(binanceMid);
+		if (!fairPrice) return;
+
+		const totalPnl = this.pnlTracker.getTotalPnl(fairPrice);
+		if (totalPnl < -this.config.maxDailyLossUsd) {
+			const snapshot = this.pnlTracker.getSnapshot(fairPrice);
+			log.circuitBreaker(
+				snapshot.totalPnl,
+				snapshot.realizedPnl,
+				snapshot.unrealizedPnl,
+				snapshot.positionSize,
+				snapshot.avgCostPrice,
+				this.config.maxDailyLossUsd,
+			);
+			this.feedState?.halt('circuit_breaker');
+			// Fallback if feedState is still null (defense-in-depth)
+			if (!this.feedState) {
+				this.cancelOrdersAsync();
+				this.isRunning = false;
+			}
 		}
 	}
 
@@ -494,6 +532,9 @@ export class MarketMaker {
 		}
 		if (this.config.inventorySkewEnabled) {
 			cfg["Inventory Skew"] = `max $${this.config.maxPositionUsd}`;
+		}
+		if (this.config.pnlTrackingEnabled) {
+			cfg["Loss Limit"] = `-$${this.config.maxDailyLossUsd}`;
 		}
 		log.config(cfg);
 	}
@@ -580,5 +621,15 @@ export class MarketMaker {
 		log.info(
 			`VOL: ${volStr} | spread: ${effSpread.toFixed(1)}bps (${spreadSource})${skewInfo}`,
 		);
+
+		if (this.pnlTracker) {
+			const fp = this.fairPriceCalc?.getFairPrice(binanceMid);
+			if (fp) {
+				const snap = this.pnlTracker.getSnapshot(fp);
+				log.info(
+					`PNL: total=$${snap.totalPnl.toFixed(2)} | realized=$${snap.realizedPnl.toFixed(2)} | unrealized=$${snap.unrealizedPnl.toFixed(2)} | limit=-$${this.config.maxDailyLossUsd}`,
+				);
+			}
+		}
 	}
 }
