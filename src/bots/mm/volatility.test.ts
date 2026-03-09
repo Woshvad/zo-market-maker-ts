@@ -116,15 +116,18 @@ describe('VolatilityTracker', () => {
 
       // At t=2000 all 3 samples are in window -> vol reflects the big move
       const volBefore = tracker.getVolatilityBps()!;
+      expect(volBefore).toBeGreaterThan(0);
 
-      // Advance time so the first two samples fall outside window
-      t = 8000;
+      // Advance time so old samples fall outside window, add new calm samples
+      t = 6000;
       tracker.onPrice(202);
-      // Now window is [3000, 8000], only samples at t=2000 (201) and t=8000 (202) remain
-      // (t=0 and t=1000 are outside window)
+      t = 7000;
+      tracker.onPrice(202.5);
+      // Now window is [2000, 7000]: samples at t=0(100) and t=1000(200) are dropped
+      // Remaining: t=2000(201), t=6000(202), t=7000(202.5)
+      // The big 100->200 jump is gone
       const volAfter = tracker.getVolatilityBps()!;
 
-      // The big 100->200 jump should be gone
       expect(volAfter).toBeLessThan(volBefore);
     });
   });
