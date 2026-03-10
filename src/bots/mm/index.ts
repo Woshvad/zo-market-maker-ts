@@ -86,6 +86,7 @@ export class MarketMaker {
 	private volatilityTracker: VolatilityTracker | null = null;
 	private pnlTracker: PnlTracker | null = null;
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
+	private forceCloseInterval: ReturnType<typeof setInterval> | null = null;
 	private telegram: TelegramNotifier | null = null;
 
 	constructor(
@@ -202,6 +203,12 @@ export class MarketMaker {
 				onHalted: (reason) => {
 					log.halted(reason);
 					this.cancelOrdersAsync();
+
+					// Hard deadline: exit no matter what after 5s
+					setTimeout(() => {
+						log.error("HALTED: exit timeout reached, forcing exit");
+						process.exit(1);
+					}, 5000).unref();
 
 					// Attempt to flatten open position, then notify and exit
 					void (async () => {
@@ -399,6 +406,16 @@ export class MarketMaker {
 				this.feedState?.checkStale();
 			}, 500);
 		}
+
+		// Force-close check runs on its own 1s timer so position timeout
+		// fires even when no price ticks are arriving (stale feed).
+		this.forceCloseInterval = setInterval(() => {
+			const binanceMid = this.binanceFeed?.getMidPrice()?.mid;
+			if (!binanceMid) return;
+			const fairPrice = this.fairPriceCalc?.getFairPrice(binanceMid);
+			if (!fairPrice) return;
+			void this.checkForceClose(fairPrice);
+		}, 1000);
 	}
 
 	private registerShutdownHandlers(): void {
@@ -416,6 +433,11 @@ export class MarketMaker {
 		if (this.staleCheckInterval) {
 			clearInterval(this.staleCheckInterval);
 			this.staleCheckInterval = null;
+		}
+
+		if (this.forceCloseInterval) {
+			clearInterval(this.forceCloseInterval);
+			this.forceCloseInterval = null;
 		}
 
 		if (this.statusInterval) {
@@ -539,7 +561,9 @@ export class MarketMaker {
 	 * Cancels all orders and fires an IOC reduce-only market order.
 	 * Returns true if a force-close was triggered (caller should skip normal quoting).
 	 */
+	private isForceClosing = false;
 	private async checkForceClose(fairPrice: number): Promise<boolean> {
+		if (this.isForceClosing) return false;
 		if (!this.positionTracker || !this.pnlTracker || !this.client) return false;
 
 		const posSize = this.positionTracker.getBaseSize();
@@ -559,6 +583,7 @@ export class MarketMaker {
 			: `timeout (${((positionAgeMs ?? 0) / 1000).toFixed(1)}s > ${this.config.positionTimeoutMs / 1000}s)`;
 
 		log.warn(`FORCE CLOSE: ${reason}`);
+		this.isForceClosing = true;
 
 		// Cancel all orders first
 		this.cancelOrdersAsync();
@@ -581,6 +606,8 @@ export class MarketMaker {
 			);
 		} catch (err) {
 			log.error("Force close failed:", err);
+		} finally {
+			this.isForceClosing = false;
 		}
 
 		return true;
