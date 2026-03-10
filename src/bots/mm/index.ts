@@ -409,11 +409,23 @@ export class MarketMaker {
 
 		// Force-close check runs on its own 1s timer so position timeout
 		// fires even when no price ticks are arriving (stale feed).
+		let forceCloseTickCount = 0;
 		this.forceCloseInterval = setInterval(() => {
 			const binanceMid = this.binanceFeed?.getMidPrice()?.mid;
 			if (!binanceMid) return;
 			const fairPrice = this.fairPriceCalc?.getFairPrice(binanceMid);
 			if (!fairPrice) return;
+
+			// Log force-close state every 10s when holding a position
+			forceCloseTickCount++;
+			const ageMs = this.positionTracker?.getPositionAgeMs();
+			const posSize = this.positionTracker?.getBaseSize() ?? 0;
+			if (forceCloseTickCount % 10 === 0 && Math.abs(posSize) > 0.00001) {
+				log.debug(
+					`force-close tick: pos=${posSize.toFixed(6)}, age=${ageMs !== null && ageMs !== undefined ? (ageMs / 1000).toFixed(1) + "s" : "null"}, timeout=${this.config.positionTimeoutMs / 1000}s`,
+				);
+			}
+
 			void this.checkForceClose(fairPrice);
 		}, 1000);
 	}

@@ -80,7 +80,16 @@ export class PositionTracker {
 				log.warn(
 					`Position drift: local=${this.baseSize.toFixed(6)}, server=${serverSize.toFixed(6)}`,
 				);
+				const wasFlatBefore = Math.abs(this.baseSize) < 0.00001;
 				this.baseSize = serverSize;
+				const isFlatNow = Math.abs(this.baseSize) < 0.00001;
+
+				// Keep positionOpenedAt consistent after drift correction
+				if (wasFlatBefore && !isFlatNow && this.positionOpenedAt === null) {
+					this.positionOpenedAt = Date.now();
+				} else if (isFlatNow) {
+					this.positionOpenedAt = null;
+				}
 			}
 		} catch (err) {
 			log.error("Position sync error:", err);
