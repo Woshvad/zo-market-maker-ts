@@ -11,7 +11,10 @@
     "check": "biome check src",
     "format": "biome format --write src",
     "lint": "biome lint src",
-    "test": "vitest run --reporter=verbose"
+    "test": "vitest run --reporter=verbose",
+    "start:pm2": "pm2 start ecosystem.config.cjs",
+    "stop:pm2": "pm2 stop zo-mm",
+    "logs:pm2": "pm2 logs zo-mm"
   },
   "author": "",
   "license": "MIT",
@@ -30,6 +33,7 @@
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.0",
+    "pm2": "^6.0.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.18"
