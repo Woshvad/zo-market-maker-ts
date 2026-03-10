@@ -1,47 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-status: completed
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-09T01:33:25.464Z"
-last_activity: 2026-03-09 -- Completed 02-02 InventorySkewCalculator
+milestone_name: Risk Improvements
+status: milestone_complete
+stopped_at: v1.0 milestone archived
+last_updated: "2026-03-09"
+last_activity: 2026-03-10 - Completed quick task 1: Close open position on HALT and fix PnL double-counting on restart
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 80
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: completed
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-09T01:05:18.119Z"
-last_activity: 2026-03-09 -- Completed 01-02 Config and FeedStateManager Integration
-progress:
-  [████████░░] 80%
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 3
----
-
----
-gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: phase_complete
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-09T00:15:02.213Z"
-last_activity: 2026-03-09 -- Completed 01-02 Config and FeedStateManager Integration
-progress:
-  total_phases: 3
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  completed_plans: 7
   percent: 100
 ---
 
@@ -49,74 +18,55 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-08)
+See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** The bot must never quote on stale or unreliable price data
-**Current focus:** Phase 2: Quote Intelligence (IN PROGRESS)
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 2 of 3 (Quote Intelligence)
-Plan: 2 of 3 in current phase
-Status: In Progress
-Last activity: 2026-03-09 -- Completed 02-02 InventorySkewCalculator
-
-Progress: [██████░░░░] 60%
+Milestone v1.0 Risk Improvements — SHIPPED 2026-03-09
+All 3 phases complete, 7 plans executed, 102 tests passing.
 
 ## Performance Metrics
 
-**Velocity:**
-- Total plans completed: 2
-- Average duration: 4min
-- Total execution time: 0.13 hours
+**v1.0 Summary:**
+- Total plans: 7 across 3 phases
+- Total tasks: 12
+- Tests: 102 passing
+- LOC: 4,535 TypeScript
+- Timeline: 1 day (2026-03-09)
 
 **By Phase:**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 01-feed-safety | 2/2 | 8min | 4min |
-| 02-quote-intelligence | 2/3 | 2min | 1min |
-
-**Recent Trend:**
-- Last 5 plans: -
-- Trend: -
-
-*Updated after each plan completion*
-| Phase 02 P01 | 3min | 2 tasks | 4 files |
-| Phase 02 P03 | 4min | 2 tasks | 6 files |
-| Phase 03 P01 | 2min | 1 tasks | 2 files |
+| Phase | Plans | Duration |
+|-------|-------|----------|
+| 01-feed-safety | 2/2 | 8min |
+| 02-quote-intelligence | 3/3 | 9min |
+| 03-loss-protection | 2/2 | 4min |
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
-
-- Injectable now() function for deterministic time control in tests instead of mocking Date.now
-- Sliding window stale events array with filter-on-check for halt threshold detection
-- FeedStateManager null when stalePriceEnabled=false for zero-cost disabled path
-- 500ms stale check interval for 2s threshold (4x Nyquist sampling rate)
-- Linear skew formula: skewBps = -(positionUsd/maxPositionUsd) * effectiveSpreadBps
-- Normalize -0 to 0 using || 0 for clean zero-position output
-- [Phase 02]: Extracted computeWeightedMid as pure exported function for direct testing without WebSocket
-- [Phase 02]: Population stddev (N divisor) for volatility - avoids overstating with small sample windows
-- [Phase 02]: Raw (non-annualized) stddev for bps values directly comparable to configured spread settings
-- [Phase 02]: Skew applied as additive shift to fair price, spread from original fair for consistent width
-- [Phase 02]: Defense-in-depth: close mode zeroes skewBps at caller AND QuotingContext layers
-- [Phase 03]: Average cost basis (not FIFO/LIFO) for PnL tracking
-- [Phase 03]: Position flip splits fill into close-portion and open-portion at fill price
+All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
-- Phase 2 (Inventory Skew): Transition from binary close mode to continuous skew is the riskiest refactor. Research recommends deeper analysis during planning.
+None — milestone complete.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Close open position on HALT and fix PnL double-counting on restart | 2026-03-10 | 04c67b4 | [1-close-open-position-on-halt-and-fix-pnl-](./quick/1-close-open-position-on-halt-and-fix-pnl-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-09T01:33:25.461Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-03-09
+Stopped at: v1.0 milestone archived
 Resume file: None

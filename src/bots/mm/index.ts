@@ -21,12 +21,16 @@ import {
 } from "../../sdk/orders.js";
 import type { MidPrice } from "../../types.js";
 import { log } from "../../utils/logger.js";
+import {
+	createTelegramNotifier,
+	type TelegramNotifier,
+} from "../../utils/telegram.js";
 import type { MarketMakerConfig } from "./config.js";
-import { FeedStateManager, type FeedStateCallbacks } from "./feed-state.js";
+import { type FeedStateCallbacks, FeedStateManager } from "./feed-state.js";
 import { calculateInventorySkew } from "./inventory-skew.js";
+import { PnlTracker } from "./pnl-tracker.js";
 import { type PositionConfig, PositionTracker } from "./position.js";
 import { Quoter } from "./quoter.js";
-import { PnlTracker } from "./pnl-tracker.js";
 import { VolatilityTracker } from "./volatility.js";
 
 export type { MarketMakerConfig } from "./config.js";
@@ -82,7 +86,7 @@ export class MarketMaker {
 	private volatilityTracker: VolatilityTracker | null = null;
 	private pnlTracker: PnlTracker | null = null;
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
-	private haltedWarningInterval: ReturnType<typeof setInterval> | null = null;
+	private telegram: TelegramNotifier | null = null;
 
 	constructor(
 		private readonly config: MarketMakerConfig,
@@ -104,6 +108,7 @@ export class MarketMaker {
 		await this.syncInitialOrders();
 		this.startIntervals();
 		this.registerShutdownHandlers();
+		await this.telegram?.sendMessage("Bot started");
 
 		log.info("Warming up price feeds...");
 		await this.waitForever();
@@ -131,6 +136,7 @@ export class MarketMaker {
 		}
 		this.marketId = market.marketId;
 		this.marketSymbol = market.symbol;
+		this.telegram = createTelegramNotifier(this.marketSymbol);
 
 		const binanceSymbol = deriveBinanceSymbol(market.symbol);
 		this.logConfig(binanceSymbol);
@@ -197,17 +203,13 @@ export class MarketMaker {
 					log.halted(reason);
 					this.cancelOrdersAsync();
 
-					// Attempt to flatten open position
+					// Attempt to flatten open position, then notify and exit
 					void (async () => {
 						try {
-							const posSize =
-								this.positionTracker?.getBaseSize() ?? 0;
+							const posSize = this.positionTracker?.getBaseSize() ?? 0;
 							if (Math.abs(posSize) > 0.00001) {
-								const closeSide: "bid" | "ask" =
-									posSize > 0 ? "ask" : "bid";
-								const closeSize = new Decimal(
-									Math.abs(posSize),
-								);
+								const closeSide: "bid" | "ask" = posSize > 0 ? "ask" : "bid";
+								const closeSize = new Decimal(Math.abs(posSize));
 								const aggressivePrice =
 									closeSide === "ask"
 										? new Decimal("0.01")
@@ -229,15 +231,12 @@ export class MarketMaker {
 								err,
 							);
 						}
-					})();
 
-					// Start 30s warning interval
-					if (this.haltedWarningInterval) {
-						clearInterval(this.haltedWarningInterval);
-					}
-					this.haltedWarningInterval = setInterval(() => {
-						log.halted(reason);
-					}, 30_000);
+						await this.telegram?.sendMessage(
+							`HALTED: ${reason}\nPosition close attempted.`,
+						);
+						process.exit(1);
+					})();
 				},
 			};
 			this.feedState = new FeedStateManager(
@@ -418,10 +417,6 @@ export class MarketMaker {
 			clearInterval(this.staleCheckInterval);
 			this.staleCheckInterval = null;
 		}
-		if (this.haltedWarningInterval) {
-			clearInterval(this.haltedWarningInterval);
-			this.haltedWarningInterval = null;
-		}
 
 		if (this.statusInterval) {
 			clearInterval(this.statusInterval);
@@ -448,6 +443,7 @@ export class MarketMaker {
 			log.error("Shutdown error:", err);
 		}
 
+		await this.telegram?.sendMessage("Bot shutting down (manual stop)");
 		process.exit(0);
 	}
 
@@ -552,7 +548,7 @@ export class MarketMaker {
 				snapshot.avgCostPrice,
 				this.config.maxDailyLossUsd,
 			);
-			this.feedState?.halt('circuit_breaker');
+			this.feedState?.halt("circuit_breaker");
 			// Fallback if feedState is still null (defense-in-depth)
 			if (!this.feedState) {
 				this.cancelOrdersAsync();
@@ -573,7 +569,8 @@ export class MarketMaker {
 		if (this.config.stalePriceEnabled) {
 			cfg["Stale Detection"] = `${this.config.staleThresholdMs}ms threshold`;
 			cfg["Recovery"] = `${this.config.recoveryPriceCount} prices`;
-			cfg["Halt"] = `${this.config.haltStaleCount} stale events in ${this.config.haltWindowMs / 60000}m`;
+			cfg["Halt"] =
+				`${this.config.haltStaleCount} stale events in ${this.config.haltWindowMs / 60000}m`;
 		}
 		if (this.config.volatilityEnabled) {
 			cfg["Volatility"] =
@@ -661,8 +658,7 @@ export class MarketMaker {
 						this.config.maxPositionUsd > 0
 							? `${((Math.abs(posUsd) / this.config.maxPositionUsd) * 100).toFixed(0)}%`
 							: "0%";
-					const dirStr =
-						posUsd > 0 ? "long" : posUsd < 0 ? "short" : "flat";
+					const dirStr = posUsd > 0 ? "long" : posUsd < 0 ? "short" : "flat";
 					return ` | skew: ${skew.skewBps.toFixed(1)}bps (${dirStr} ${pctStr})`;
 				})()
 			: "";
