@@ -16,6 +16,7 @@ import { ZoOrderbookStream } from "../../sdk/orderbook.js";
 import {
 	type CachedOrder,
 	cancelOrders,
+	placeMarketOrder,
 	updateQuotes,
 } from "../../sdk/orders.js";
 import type { MidPrice } from "../../types.js";
@@ -186,9 +187,50 @@ export class MarketMaker {
 				onRecovery: () => {
 					log.info("Feed recovered - resuming quoting");
 				},
+				// HALT POSITION CLOSE
+				// When the bot halts (circuit breaker or repeated stale), we attempt to
+				// flatten any open position via a market IOC order before entering the
+				// halted warning loop. This prevents unmanaged exposure while halted.
+				// If the close order fails, we log the error but still proceed to HALTED
+				// state -- the bot must never get stuck trying to close.
 				onHalted: (reason) => {
 					log.halted(reason);
 					this.cancelOrdersAsync();
+
+					// Attempt to flatten open position
+					void (async () => {
+						try {
+							const posSize =
+								this.positionTracker?.getBaseSize() ?? 0;
+							if (Math.abs(posSize) > 0.00001) {
+								const closeSide: "bid" | "ask" =
+									posSize > 0 ? "ask" : "bid";
+								const closeSize = new Decimal(
+									Math.abs(posSize),
+								);
+								const aggressivePrice =
+									closeSide === "ask"
+										? new Decimal("0.01")
+										: new Decimal("999999");
+								log.info(
+									`HALTED: closing open position [${closeSide}] [${closeSize}] @ market`,
+								);
+								await placeMarketOrder(
+									this.requireClient().user,
+									this.marketId,
+									closeSide,
+									closeSize,
+									aggressivePrice,
+								);
+							}
+						} catch (err) {
+							log.error(
+								"HALTED: failed to close position, proceeding anyway:",
+								err,
+							);
+						}
+					})();
+
 					// Start 30s warning interval
 					if (this.haltedWarningInterval) {
 						clearInterval(this.haltedWarningInterval);
@@ -239,6 +281,13 @@ export class MarketMaker {
 		this.accountStream?.connect();
 		this.orderbookStream?.connect();
 		this.binanceFeed?.connect();
+
+		// Enable fill processing after initial connect (suppressed during replay)
+		// Small delay ensures WebSocket replay messages are processed before we start counting
+		setTimeout(() => {
+			this.accountStream?.setSuppressFills(false);
+			log.info("Fill processing enabled (replay window closed)");
+		}, 2000);
 	}
 
 	private handleBinancePrice(binancePrice: MidPrice): void {
