@@ -5,7 +5,7 @@ milestone_name: Risk Improvements
 status: milestone_complete
 stopped_at: v1.0 milestone archived
 last_updated: "2026-03-09"
-last_activity: 2026-03-10 - Completed quick task 1: Close open position on HALT and fix PnL double-counting on restart
+last_activity: 2026-03-10 - Completed quick task 2: Add auto-restart on halt and Telegram notifications
 progress:
   total_phases: 3
   completed_phases: 3
@@ -64,9 +64,10 @@ None — milestone complete.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Close open position on HALT and fix PnL double-counting on restart | 2026-03-10 | 04c67b4 | [1-close-open-position-on-halt-and-fix-pnl-](./quick/1-close-open-position-on-halt-and-fix-pnl-/) |
+| 2 | Add auto-restart on halt and Telegram notifications | 2026-03-10 | 6dd88da | [2-add-auto-restart-on-halt-and-telegram-no](./quick/2-add-auto-restart-on-halt-and-telegram-no/) |
 
 ## Session Continuity
 
-Last session: 2026-03-09
-Stopped at: v1.0 milestone archived
+Last session: 2026-03-10
+Stopped at: Completed quick task 2
 Resume file: None
