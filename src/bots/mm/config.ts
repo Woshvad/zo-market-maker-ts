@@ -25,6 +25,8 @@ export interface MarketMakerConfig {
   readonly maxPositionUsd: number // Max position for skew scaling
   readonly pnlTrackingEnabled: boolean // Enable PnL tracking and circuit breaker
   readonly maxDailyLossUsd: number // Loss threshold (positive number, e.g., 20)
+  readonly stopLossUsd: number // Per-position stop-loss in USD (force close if unrealized loss exceeds this)
+  readonly positionTimeoutMs: number // Max time a position can be open before forced close (ms)
 }
 
 // Default configuration values (symbol must be provided)
@@ -52,4 +54,6 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   maxPositionUsd: 10,
   pnlTrackingEnabled: true,
   maxDailyLossUsd: 20,
+  stopLossUsd: 0.5,
+  positionTimeoutMs: 45_000,
 }

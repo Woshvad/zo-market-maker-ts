@@ -28,6 +28,7 @@ export interface PositionConfig {
 export class PositionTracker {
 	private baseSize = 0;
 	private isRunning = false;
+	private positionOpenedAt: number | null = null; // timestamp when position was opened
 
 	constructor(private readonly config: PositionConfig) {}
 
@@ -87,14 +88,32 @@ export class PositionTracker {
 	}
 
 	applyFill(side: "bid" | "ask", size: number, _price: number): void {
+		const wasFlatBefore = Math.abs(this.baseSize) < 0.00001;
+
 		if (side === "bid") {
 			this.baseSize += size;
 		} else {
 			this.baseSize -= size;
 		}
+
+		const isFlatNow = Math.abs(this.baseSize) < 0.00001;
+
+		// Track when position was opened/closed
+		if (wasFlatBefore && !isFlatNow) {
+			this.positionOpenedAt = Date.now();
+		} else if (isFlatNow) {
+			this.positionOpenedAt = null;
+		}
+
 		log.debug(
 			`Position updated: ${this.baseSize.toFixed(6)} (${side} ${size})`,
 		);
+	}
+
+	/** Returns ms since position was opened, or null if flat. */
+	getPositionAgeMs(): number | null {
+		if (this.positionOpenedAt === null) return null;
+		return Date.now() - this.positionOpenedAt;
 	}
 
 	getQuotingContext(

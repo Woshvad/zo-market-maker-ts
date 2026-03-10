@@ -460,6 +460,10 @@ export class MarketMaker {
 				return;
 			}
 
+			// Check force-close before quoting (stop-loss or timeout)
+			const forceClosed = await this.checkForceClose(fairPrice);
+			if (forceClosed) return;
+
 			// Compute effective spread
 			const effectiveSpreadBps = this.volatilityTracker
 				? this.volatilityTracker.getEffectiveSpreadBps(this.config.spreadBps)
@@ -530,6 +534,58 @@ export class MarketMaker {
 		}
 	}
 
+	/**
+	 * Force-close position if per-trade stop-loss or position timeout is breached.
+	 * Cancels all orders and fires an IOC reduce-only market order.
+	 * Returns true if a force-close was triggered (caller should skip normal quoting).
+	 */
+	private async checkForceClose(fairPrice: number): Promise<boolean> {
+		if (!this.positionTracker || !this.pnlTracker || !this.client) return false;
+
+		const posSize = this.positionTracker.getBaseSize();
+		if (Math.abs(posSize) < 0.00001) return false;
+
+		const unrealizedPnl = this.pnlTracker.getUnrealizedPnl(fairPrice);
+		const positionAgeMs = this.positionTracker.getPositionAgeMs();
+
+		const stopLossBreached = unrealizedPnl < -this.config.stopLossUsd;
+		const timeoutBreached =
+			positionAgeMs !== null && positionAgeMs > this.config.positionTimeoutMs;
+
+		if (!stopLossBreached && !timeoutBreached) return false;
+
+		const reason = stopLossBreached
+			? `stop-loss ($${unrealizedPnl.toFixed(2)} < -$${this.config.stopLossUsd})`
+			: `timeout (${((positionAgeMs ?? 0) / 1000).toFixed(1)}s > ${this.config.positionTimeoutMs / 1000}s)`;
+
+		log.warn(`FORCE CLOSE: ${reason}`);
+
+		// Cancel all orders first
+		this.cancelOrdersAsync();
+
+		// Fire IOC reduce-only market order
+		try {
+			const closeSide: "bid" | "ask" = posSize > 0 ? "ask" : "bid";
+			const closeSize = new Decimal(Math.abs(posSize));
+			const aggressivePrice =
+				closeSide === "ask"
+					? new Decimal("0.01")
+					: new Decimal("999999");
+
+			await placeMarketOrder(
+				this.client.user,
+				this.marketId,
+				closeSide,
+				closeSize,
+				aggressivePrice,
+			);
+		} catch (err) {
+			log.error("Force close failed:", err);
+		}
+
+		return true;
+	}
+
 	private checkCircuitBreaker(): void {
 		if (!this.pnlTracker) return;
 		const binanceMid = this.binanceFeed?.getMidPrice()?.mid;
@@ -582,6 +638,8 @@ export class MarketMaker {
 		if (this.config.pnlTrackingEnabled) {
 			cfg["Loss Limit"] = `-$${this.config.maxDailyLossUsd}`;
 		}
+		cfg["Stop Loss"] = `$${this.config.stopLossUsd}/position`;
+		cfg["Position Timeout"] = `${this.config.positionTimeoutMs / 1000}s`;
 		log.config(cfg);
 	}
 
@@ -634,8 +692,11 @@ export class MarketMaker {
 			? ` | feed: ${this.feedState.getState()}`
 			: "";
 
+		const ageMs = this.positionTracker?.getPositionAgeMs() ?? null;
+		const ageStr = ageMs !== null ? ` | age: ${(ageMs / 1000).toFixed(1)}s` : "";
+
 		log.info(
-			`STATUS: pos=${pos.toFixed(5)} | bid=[${bidStr}] | ask=[${askStr}]${feedStateStr}${staleStr}`,
+			`STATUS: pos=${pos.toFixed(5)} | bid=[${bidStr}] | ask=[${askStr}]${ageStr}${feedStateStr}${staleStr}`,
 		);
 
 		// Volatility and skew status line
