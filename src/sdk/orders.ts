@@ -185,6 +185,29 @@ export async function updateQuotes(
 	return [...keptOrders, ...placedOrders];
 }
 
+// Place a market-style IOC reduce-only order (used for halt position close)
+export async function placeMarketOrder(
+	user: NordUser,
+	marketId: number,
+	side: "bid" | "ask",
+	size: Decimal,
+	price: Decimal,
+): Promise<void> {
+	const action: UserAtomicSubaction = {
+		kind: "place",
+		marketId,
+		side: side === "bid" ? Side.Bid : Side.Ask,
+		fillMode: FillMode.ImmediateOrCancel,
+		isReduceOnly: true,
+		price,
+		size,
+	};
+	log.info(
+		`MARKET ORDER: ${side} ${size.toString()} @ ${price.toString()} (IOC reduce-only)`,
+	);
+	await executeAtomic(user, [action]);
+}
+
 // Cancel orders
 export async function cancelOrders(
 	user: NordUser,

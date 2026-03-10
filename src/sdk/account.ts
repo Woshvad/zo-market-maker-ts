@@ -30,6 +30,7 @@ export class AccountStream {
 	private onFill: FillCallback | null = null;
 	private isClosing = false;
 	private reconnectTimeout: NodeJS.Timeout | null = null;
+	private suppressFills = true;
 
 	// For re-sync on reconnect
 	private user: NordUser | null = null;
@@ -41,6 +42,10 @@ export class AccountStream {
 
 	setOnFill(callback: FillCallback): void {
 		this.onFill = callback;
+	}
+
+	setSuppressFills(suppress: boolean): void {
+		this.suppressFills = suppress;
 	}
 
 	connect(): void {
@@ -85,6 +90,9 @@ export class AccountStream {
 	}
 
 	private async reconnect(): Promise<void> {
+		// Suppress fills during replay window
+		this.suppressFills = true;
+
 		// Close existing subscription
 		if (this.subscription) {
 			this.subscription.close();
@@ -101,6 +109,12 @@ export class AccountStream {
 		this.setupEventHandlers();
 
 		log.info("Account stream reconnected");
+
+		// Re-enable fills after replay window
+		setTimeout(() => {
+			this.suppressFills = false;
+			log.info("Fill processing re-enabled after reconnect");
+		}, 2000);
 	}
 
 	private async resyncOrders(): Promise<void> {
@@ -132,7 +146,7 @@ export class AccountStream {
 		for (const [orderId, fill] of Object.entries(data.fills)) {
 			const fillSize = fill.quantity;
 
-			if (fillSize > 0 && this.onFill) {
+			if (fillSize > 0 && this.onFill && !this.suppressFills) {
 				this.onFill({
 					orderId,
 					side: fill.side,
