@@ -67,6 +67,7 @@ export class MarketMaker {
 	private client: ZoClient | null = null;
 	private marketId = 0;
 	private marketSymbol = "";
+	private sizeDecimals = 0;
 	private accountStream: AccountStream | null = null;
 	private orderbookStream: ZoOrderbookStream | null = null;
 	private binanceFeed: BinancePriceFeed | null = null;
@@ -137,6 +138,7 @@ export class MarketMaker {
 		}
 		this.marketId = market.marketId;
 		this.marketSymbol = market.symbol;
+		this.sizeDecimals = market.sizeDecimals;
 		this.telegram = createTelegramNotifier(this.marketSymbol);
 
 		const binanceSymbol = deriveBinanceSymbol(market.symbol);
@@ -214,9 +216,12 @@ export class MarketMaker {
 					void (async () => {
 						try {
 							const posSize = this.positionTracker?.getBaseSize() ?? 0;
-							if (Math.abs(posSize) > 0.00001) {
+							const rawSize = Math.abs(posSize);
+							const factor = 10 ** this.sizeDecimals;
+							const truncatedSize = Math.floor(rawSize * factor) / factor;
+							if (truncatedSize > 0) {
 								const closeSide: "bid" | "ask" = posSize > 0 ? "ask" : "bid";
-								const closeSize = new Decimal(Math.abs(posSize));
+								const closeSize = new Decimal(truncatedSize.toFixed(this.sizeDecimals));
 								const aggressivePrice =
 									closeSide === "ask"
 										? new Decimal("0.01")
@@ -602,8 +607,12 @@ export class MarketMaker {
 
 		// Fire IOC reduce-only market order
 		try {
+			const rawSize = Math.abs(posSize);
+			const factor = 10 ** this.sizeDecimals;
+			const truncatedSize = Math.floor(rawSize * factor) / factor;
+			if (truncatedSize === 0) return false;
 			const closeSide: "bid" | "ask" = posSize > 0 ? "ask" : "bid";
-			const closeSize = new Decimal(Math.abs(posSize));
+			const closeSize = new Decimal(truncatedSize.toFixed(this.sizeDecimals));
 			const aggressivePrice =
 				closeSide === "ask"
 					? new Decimal("0.01")
@@ -618,6 +627,7 @@ export class MarketMaker {
 			);
 		} catch (err) {
 			log.error("Force close failed:", err);
+			await this.telegram?.sendMessage(`Force close FAILED: ${err instanceof Error ? err.message : String(err)}`);
 		} finally {
 			this.isForceClosing = false;
 		}
