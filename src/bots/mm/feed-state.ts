@@ -19,7 +19,7 @@
  */
 
 export type FeedState = 'WARMING_UP' | 'QUOTING' | 'STALE' | 'HALTED';
-export type HaltReason = 'repeated_stale' | 'circuit_breaker';
+export type HaltReason = 'repeated_stale' | 'circuit_breaker' | 'force_close_failed';
 
 export interface FeedStateConfig {
   readonly staleThresholdMs: number;

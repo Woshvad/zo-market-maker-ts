@@ -272,6 +272,12 @@ export class MarketMaker {
 		this.accountStream?.setOnFill((fill: FillEvent) => {
 			log.fill(fill.side === "bid" ? "buy" : "sell", fill.price, fill.size);
 			this.positionTracker?.applyFill(fill.side, fill.size, fill.price);
+			const posAfterFill = this.positionTracker?.getBaseSize() ?? 0;
+			if (Math.abs(posAfterFill) < 0.00001) {
+				this.forceCloseGaveUp = false;
+				this.forceCloseFailCount = 0;
+				this.forceClosePausedUntil = 0;
+			}
 			this.pnlTracker?.applyFill(fill.side, fill.size, fill.price);
 			this.checkCircuitBreaker();
 			// Cancel all orders when entering close mode
@@ -579,8 +585,13 @@ export class MarketMaker {
 	 * Returns true if a force-close was triggered (caller should skip normal quoting).
 	 */
 	private isForceClosing = false;
+	private forceCloseFailCount = 0;
+	private forceClosePausedUntil = 0;
+	private forceCloseGaveUp = false;
 	private async checkForceClose(fairPrice: number): Promise<boolean> {
 		if (this.isForceClosing) return false;
+		if (Date.now() < this.forceClosePausedUntil) return false;
+		if (this.forceCloseGaveUp) return false;
 		if (!this.positionTracker || !this.pnlTracker || !this.client) return false;
 
 		const posSize = this.positionTracker.getBaseSize();
@@ -625,9 +636,23 @@ export class MarketMaker {
 				closeSize,
 				aggressivePrice,
 			);
+			this.forceCloseFailCount = 0;
+			this.forceClosePausedUntil = 0;
 		} catch (err) {
-			log.error("Force close failed:", err);
-			await this.telegram?.sendMessage(`Force close FAILED: ${err instanceof Error ? err.message : String(err)}`);
+			this.forceCloseFailCount++;
+			const backoffMs = Math.min(1000 * 2 ** this.forceCloseFailCount, 60000);
+			this.forceClosePausedUntil = Date.now() + backoffMs;
+			log.error(`Force close failed (attempt ${this.forceCloseFailCount}, next retry in ${backoffMs / 1000}s):`, err);
+			await this.telegram?.sendMessage(`Force close FAILED (attempt ${this.forceCloseFailCount}): ${err instanceof Error ? err.message : String(err)}`);
+			if (this.forceCloseFailCount >= 5) {
+				log.warn("Force close failed 5 times — falling back to close mode via regular quoting");
+				this.forceCloseGaveUp = true;
+				this.forceCloseFailCount = 0;
+				this.forceClosePausedUntil = 0;
+				this.isForceClosing = false;
+				await this.telegram?.sendMessage("Force close gave up after 5 attempts. Position will be closed via regular quoting.");
+				return false;
+			}
 		} finally {
 			this.isForceClosing = false;
 		}
