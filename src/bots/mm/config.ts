@@ -64,9 +64,9 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   inventorySkewEnabled: true,
   maxPositionUsd: 10,
   pnlTrackingEnabled: true,
-  maxDailyLossUsd: 20,
-  stopLossUsd: 0.5,
-  positionTimeoutMs: 45_000,
+  maxDailyLossUsd: 15,
+  stopLossUsd: 1,
+  positionTimeoutMs: 60_000,
 
   // Adverse selection detection
   adverseSelectionEnabled: true,
