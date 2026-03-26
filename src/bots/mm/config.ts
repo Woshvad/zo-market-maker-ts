@@ -27,6 +27,17 @@ export interface MarketMakerConfig {
   readonly maxDailyLossUsd: number // Loss threshold (positive number, e.g., 20)
   readonly stopLossUsd: number // Per-position stop-loss in USD (force close if unrealized loss exceeds this)
   readonly positionTimeoutMs: number // Max time a position can be open before forced close (ms)
+
+  // Adverse selection detection
+  readonly adverseSelectionEnabled: boolean // Enable fill imbalance detection
+  readonly adverseSelectionWindowSize: number // Rolling fill window size (default 30)
+  readonly adverseSelectionThreshold: number // Imbalance ratio to trigger widening (default 0.65)
+  readonly adverseSelectionMultiplier: number // Spread multiplier when imbalanced (default 1.5)
+
+  // Drawdown cooldown
+  readonly drawdownCooldownEnabled: boolean // Enable order size reduction after losses
+  readonly drawdownConsecutiveLossLimit: number // Losing cycles before cooldown (default 5)
+  readonly drawdownCooldownSizeMultiplier: number // Order size multiplier in cooldown (default 0.5)
 }
 
 // Default configuration values (symbol must be provided)
@@ -56,4 +67,15 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   maxDailyLossUsd: 20,
   stopLossUsd: 0.5,
   positionTimeoutMs: 45_000,
+
+  // Adverse selection detection
+  adverseSelectionEnabled: true,
+  adverseSelectionWindowSize: 30,
+  adverseSelectionThreshold: 0.65,
+  adverseSelectionMultiplier: 1.5,
+
+  // Drawdown cooldown
+  drawdownCooldownEnabled: true,
+  drawdownConsecutiveLossLimit: 5,
+  drawdownCooldownSizeMultiplier: 0.5,
 }

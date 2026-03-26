@@ -25,7 +25,9 @@ import {
 	createTelegramNotifier,
 	type TelegramNotifier,
 } from "../../utils/telegram.js";
+import { AdverseSelectionTracker } from "./adverse-selection.js";
 import type { MarketMakerConfig } from "./config.js";
+import { DrawdownCooldown } from "./drawdown-cooldown.js";
 import { type FeedStateCallbacks, FeedStateManager } from "./feed-state.js";
 import { calculateInventorySkew } from "./inventory-skew.js";
 import { PnlTracker } from "./pnl-tracker.js";
@@ -86,6 +88,9 @@ export class MarketMaker {
 	private feedState: FeedStateManager | null = null;
 	private volatilityTracker: VolatilityTracker | null = null;
 	private pnlTracker: PnlTracker | null = null;
+	private adverseSelectionTracker: AdverseSelectionTracker | null = null;
+	private drawdownCooldown: DrawdownCooldown | null = null;
+	private lastCycleRealizedPnl = 0; // realized PnL at start of current cycle
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 	private forceCloseInterval: ReturnType<typeof setInterval> | null = null;
 	private telegram: TelegramNotifier | null = null;
@@ -177,6 +182,23 @@ export class MarketMaker {
 		// Initialize PnL tracker (process restart resets PnL to zero -- circuit breaker is resettable)
 		if (this.config.pnlTrackingEnabled) {
 			this.pnlTracker = new PnlTracker();
+		}
+
+		// Initialize adverse selection tracker
+		if (this.config.adverseSelectionEnabled) {
+			this.adverseSelectionTracker = new AdverseSelectionTracker({
+				windowSize: this.config.adverseSelectionWindowSize,
+				imbalanceThreshold: this.config.adverseSelectionThreshold,
+				spreadMultiplier: this.config.adverseSelectionMultiplier,
+			});
+		}
+
+		// Initialize drawdown cooldown
+		if (this.config.drawdownCooldownEnabled) {
+			this.drawdownCooldown = new DrawdownCooldown({
+				consecutiveLossLimit: this.config.drawdownConsecutiveLossLimit,
+				cooldownSizeMultiplier: this.config.drawdownCooldownSizeMultiplier,
+			});
 		}
 
 		// Initialize streams
@@ -271,14 +293,41 @@ export class MarketMaker {
 		this.accountStream?.syncOrders(user, accountId);
 		this.accountStream?.setOnFill((fill: FillEvent) => {
 			log.fill(fill.side === "bid" ? "buy" : "sell", fill.price, fill.size);
+
+			const wasFlat = Math.abs(this.positionTracker?.getBaseSize() ?? 0) < 0.00001;
+
 			this.positionTracker?.applyFill(fill.side, fill.size, fill.price);
+			this.pnlTracker?.applyFill(fill.side, fill.size, fill.price);
+
+			// Track fill side for adverse selection
+			this.adverseSelectionTracker?.recordFill(fill.side);
+
 			const posAfterFill = this.positionTracker?.getBaseSize() ?? 0;
-			if (Math.abs(posAfterFill) < 0.00001) {
+			const isFlatNow = Math.abs(posAfterFill) < 0.00001;
+
+			if (isFlatNow) {
 				this.forceCloseGaveUp = false;
 				this.forceCloseFailCount = 0;
 				this.forceClosePausedUntil = 0;
+
+				// Drawdown cycle detection: position returned to flat = cycle complete
+				if (!wasFlat && this.drawdownCooldown && this.pnlTracker) {
+					const currentRealized = this.pnlTracker.getRealizedPnl();
+					const cyclePnl = currentRealized - this.lastCycleRealizedPnl;
+					this.drawdownCooldown.onCycleComplete(cyclePnl);
+					this.lastCycleRealizedPnl = currentRealized;
+					const ddState = this.drawdownCooldown.getState();
+					log.info(
+						`CYCLE: pnl=$${cyclePnl.toFixed(2)} | streak=${ddState.consecutiveLosses}/${this.config.drawdownConsecutiveLossLimit} | cooldown=${ddState.inCooldown ? "YES" : "no"} | size_mult=${ddState.sizeMultiplier}`,
+					);
+				}
+			} else if (wasFlat && !isFlatNow) {
+				// Starting a new cycle — snapshot realized PnL baseline
+				if (this.pnlTracker) {
+					this.lastCycleRealizedPnl = this.pnlTracker.getRealizedPnl();
+				}
 			}
-			this.pnlTracker?.applyFill(fill.side, fill.size, fill.price);
+
 			this.checkCircuitBreaker();
 			// Cancel all orders when entering close mode
 			if (this.positionTracker?.isCloseMode(fill.price)) {
@@ -509,10 +558,16 @@ export class MarketMaker {
 			const forceClosed = await this.checkForceClose(fairPrice);
 			if (forceClosed) return;
 
-			// Compute effective spread
-			const effectiveSpreadBps = this.volatilityTracker
+			// Compute effective spread: volatility → adverse selection multiplier
+			let effectiveSpreadBps = this.volatilityTracker
 				? this.volatilityTracker.getEffectiveSpreadBps(this.config.spreadBps)
 				: this.config.spreadBps;
+
+			// Apply adverse selection spread widening
+			if (this.adverseSelectionTracker) {
+				const asMultiplier = this.adverseSelectionTracker.getSpreadMultiplier();
+				effectiveSpreadBps *= asMultiplier;
+			}
 
 			// Compute inventory skew
 			const positionState = this.positionTracker.getPositionState(fairPrice);
@@ -541,7 +596,11 @@ export class MarketMaker {
 			}
 
 			const bbo = this.orderbookStream?.getBBO() ?? null;
-			const quotes = this.quoter.getQuotes(quotingCtx, bbo);
+			const quotes = this.quoter.getQuotes(
+				quotingCtx,
+				bbo,
+				this.drawdownCooldown?.getSizeMultiplier(),
+			);
 
 			if (quotes.length === 0) {
 				log.warn("No quotes generated (order size too small)");
@@ -562,13 +621,25 @@ export class MarketMaker {
 				isClose ? "close" : "normal",
 			);
 
-			const newOrders = await updateQuotes(
+			const result = await updateQuotes(
 				this.client.user,
 				this.marketId,
 				this.activeOrders,
 				quotes,
 			);
-			this.activeOrders = newOrders;
+			this.activeOrders = result.orders;
+
+			// State divergence detected — trigger safe halt
+			if (result.diverged) {
+				log.error("ORDER DIVERGENCE: triggering safe halt due to state inconsistency");
+				await this.telegram?.sendMessage("ORDER DIVERGENCE: halting due to state inconsistency after retries exhausted");
+				this.feedState?.halt("order_divergence");
+				if (!this.feedState) {
+					this.cancelOrdersAsync();
+					this.isRunning = false;
+				}
+				return;
+			}
 
 			this.checkCircuitBreaker();
 		} catch (err) {
@@ -714,6 +785,14 @@ export class MarketMaker {
 		}
 		cfg["Stop Loss"] = `$${this.config.stopLossUsd}/position`;
 		cfg["Position Timeout"] = `${this.config.positionTimeoutMs / 1000}s`;
+		if (this.config.adverseSelectionEnabled) {
+			cfg["Adverse Selection"] =
+				`window=${this.config.adverseSelectionWindowSize}, threshold=${(this.config.adverseSelectionThreshold * 100).toFixed(0)}%, multiplier=${this.config.adverseSelectionMultiplier}x`;
+		}
+		if (this.config.drawdownCooldownEnabled) {
+			cfg["Drawdown Cooldown"] =
+				`${this.config.drawdownConsecutiveLossLimit} losses → ${this.config.drawdownCooldownSizeMultiplier}x size`;
+		}
 		log.config(cfg);
 	}
 
@@ -721,8 +800,11 @@ export class MarketMaker {
 		if (this.activeOrders.length === 0 || !this.client) return;
 		const orders = this.activeOrders;
 		cancelOrders(this.client.user, orders)
-			.then(() => {
+			.then((result) => {
 				this.activeOrders = [];
+				if (result.diverged) {
+					log.error("CANCEL DIVERGENCE: cancel may have failed — orders could still be live on server");
+				}
 			})
 			.catch((err) => {
 				log.error("Failed to cancel orders:", err);
@@ -810,6 +892,23 @@ export class MarketMaker {
 					`PNL: total=$${snap.totalPnl.toFixed(2)} | realized=$${snap.realizedPnl.toFixed(2)} | unrealized=$${snap.unrealizedPnl.toFixed(2)} | limit=-$${this.config.maxDailyLossUsd}`,
 				);
 			}
+		}
+
+		// Adverse selection status
+		if (this.adverseSelectionTracker) {
+			const as = this.adverseSelectionTracker.getState();
+			const domStr = as.dominantSide ? ` dominant=${as.dominantSide}` : "";
+			log.info(
+				`ADVERSE: bids=${as.bidFills} asks=${as.askFills} total=${as.totalFills} | ratio=bid:${(as.bidRatio * 100).toFixed(0)}%/ask:${(as.askRatio * 100).toFixed(0)}% | imbalanced=${as.isImbalanced ? "YES" : "no"}${domStr} | spread_mult=${as.spreadMultiplier}x`,
+			);
+		}
+
+		// Drawdown cooldown status
+		if (this.drawdownCooldown) {
+			const dd = this.drawdownCooldown.getState();
+			log.info(
+				`DRAWDOWN: streak=${dd.consecutiveLosses}/${this.config.drawdownConsecutiveLossLimit} | cooldown=${dd.inCooldown ? "YES" : "no"} | size_mult=${dd.sizeMultiplier} | cycles=${dd.totalCycles} losses=${dd.totalLosses}`,
+			);
 		}
 	}
 }

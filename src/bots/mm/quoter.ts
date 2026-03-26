@@ -22,7 +22,8 @@ export class Quoter {
 	}
 
 	// Calculate quotes from quoting context, clamped to BBO
-	getQuotes(ctx: QuotingContext, bbo: BBO | null): Quote[] {
+	// sizeMultiplier: optional multiplier for order size (e.g., 0.5 during drawdown cooldown)
+	getQuotes(ctx: QuotingContext, bbo: BBO | null, sizeMultiplier?: number): Quote[] {
 		const { fairPrice, positionState, allowedSides } = ctx;
 		const fair = new Decimal(fairPrice);
 		const skewShift = fair.mul(ctx.skewBps).div(10000);
@@ -32,13 +33,16 @@ export class Quoter {
 			: ctx.effectiveSpreadBps;
 		const spreadAmount = fair.mul(bps).div(10000);
 
-		// In close mode: limit size to position size
+		// In close mode: limit size to position size (no cooldown reduction for close orders)
 		let size: Decimal;
 		if (positionState.isCloseMode) {
 			const posSize = new Decimal(positionState.sizeBase).abs();
 			size = this.alignSize(posSize);
 		} else {
-			size = this.usdToSize(this.orderSizeUsd, fair);
+			const effectiveUsd = sizeMultiplier != null && sizeMultiplier !== 1
+				? this.orderSizeUsd * sizeMultiplier
+				: this.orderSizeUsd;
+			size = this.usdToSize(effectiveUsd, fair);
 		}
 
 		// Skip if size is too small

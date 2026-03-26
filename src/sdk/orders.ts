@@ -11,6 +11,9 @@ import type { Quote } from "../types.js";
 import { log } from "../utils/logger.js";
 
 const MAX_ATOMIC_ACTIONS = 4;
+const DEFAULT_MAX_RETRIES = 3;
+const RETRY_BASE_MS = 500;
+const RETRY_MAX_MS = 5000;
 
 // Cached order info
 export interface CachedOrder {
@@ -78,10 +81,11 @@ function extractPlacedOrders(
 	return orders;
 }
 
-// Execute atomic operations in chunks of MAX_ATOMIC_ACTIONS
+// Execute atomic operations in chunks of MAX_ATOMIC_ACTIONS with retry
 async function executeAtomic(
 	user: NordUser,
 	actions: UserAtomicSubaction[],
+	maxRetries = DEFAULT_MAX_RETRIES,
 ): Promise<CachedOrder[]> {
 	if (actions.length === 0) return [];
 
@@ -96,12 +100,30 @@ async function executeAtomic(
 			`ATOMIC [${chunkIdx}/${totalChunks}]: ${chunk.map(formatAction).join(" ")}`,
 		);
 
-		const result = (await user.atomic(chunk)) as AtomicResult;
-		const placed = extractPlacedOrders(result, chunk);
-		allOrders.push(...placed);
+		let lastError: unknown;
+		for (let attempt = 0; attempt <= maxRetries; attempt++) {
+			try {
+				const result = (await user.atomic(chunk)) as AtomicResult;
+				const placed = extractPlacedOrders(result, chunk);
+				allOrders.push(...placed);
 
-		if (placed.length > 0) {
-			log.debug(`ATOMIC: placed [${placed.map((o) => o.orderId).join(", ")}]`);
+				if (placed.length > 0) {
+					log.debug(`ATOMIC: placed [${placed.map((o) => o.orderId).join(", ")}]`);
+				}
+				lastError = null;
+				break;
+			} catch (err) {
+				lastError = err;
+				if (attempt < maxRetries) {
+					const backoffMs = Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_MAX_MS);
+					log.warn(`ATOMIC retry ${attempt + 1}/${maxRetries} in ${backoffMs}ms: ${err instanceof Error ? err.message : String(err)}`);
+					await new Promise((resolve) => setTimeout(resolve, backoffMs));
+				}
+			}
+		}
+
+		if (lastError) {
+			throw lastError;
 		}
 	}
 
@@ -140,13 +162,20 @@ function orderMatchesQuote(order: CachedOrder, quote: Quote): boolean {
 	);
 }
 
-// Update quotes: only cancel/place if changed
+// Result from updateQuotes — includes divergence flag
+export interface UpdateQuotesResult {
+	orders: CachedOrder[];
+	/** True if retries were exhausted and state may have diverged from server */
+	diverged: boolean;
+}
+
+// Update quotes: only cancel/place if changed, with retry + divergence detection
 export async function updateQuotes(
 	user: NordUser,
 	marketId: number,
 	currentOrders: CachedOrder[],
 	newQuotes: Quote[],
-): Promise<CachedOrder[]> {
+): Promise<UpdateQuotesResult> {
 	const keptOrders: CachedOrder[] = [];
 	const ordersToCancel: CachedOrder[] = [];
 	const quotesToPlace: Quote[] = [];
@@ -170,9 +199,14 @@ export async function updateQuotes(
 		}
 	}
 
+	// Log expected vs actual order state
+	log.info(
+		`ORDER SYNC: expected=${currentOrders.length} (keep=${keptOrders.length}, cancel=${ordersToCancel.length}, place=${quotesToPlace.length})`,
+	);
+
 	// Skip if nothing to do
 	if (ordersToCancel.length === 0 && quotesToPlace.length === 0) {
-		return currentOrders;
+		return { orders: currentOrders, diverged: false };
 	}
 
 	// Build actions: cancels first, then places
@@ -181,8 +215,30 @@ export async function updateQuotes(
 		...quotesToPlace.map((q) => buildPlaceAction(marketId, q)),
 	];
 
-	const placedOrders = await executeAtomic(user, actions);
-	return [...keptOrders, ...placedOrders];
+	try {
+		const placedOrders = await executeAtomic(user, actions);
+		return { orders: [...keptOrders, ...placedOrders], diverged: false };
+	} catch (err) {
+		log.error(`ORDER DIVERGENCE: atomic operation failed after ${DEFAULT_MAX_RETRIES} retries — local state may not match server`, err);
+		// Return empty orders — caller must treat state as unknown
+		return { orders: [], diverged: true };
+	}
+}
+
+// Cancel orders with retry
+export async function cancelOrders(
+	user: NordUser,
+	orders: CachedOrder[],
+): Promise<{ diverged: boolean }> {
+	if (orders.length === 0) return { diverged: false };
+	const actions = orders.map((o) => buildCancelAction(o.orderId));
+	try {
+		await executeAtomic(user, actions);
+		return { diverged: false };
+	} catch (err) {
+		log.error(`CANCEL DIVERGENCE: cancel failed after ${DEFAULT_MAX_RETRIES} retries — orders may still be open on server`, err);
+		return { diverged: true };
+	}
 }
 
 // Place a market-style IOC reduce-only order (used for halt position close)
@@ -208,12 +264,3 @@ export async function placeMarketOrder(
 	await executeAtomic(user, [action]);
 }
 
-// Cancel orders
-export async function cancelOrders(
-	user: NordUser,
-	orders: CachedOrder[],
-): Promise<void> {
-	if (orders.length === 0) return;
-	const actions = orders.map((o) => buildCancelAction(o.orderId));
-	await executeAtomic(user, actions);
-}
