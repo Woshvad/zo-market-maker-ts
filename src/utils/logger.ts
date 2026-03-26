@@ -153,6 +153,36 @@ export const log = {
 		outputFn(format("WARN", `HALTED: reason=${reason} | Bot is not quoting. Manual restart required.`));
 	},
 
+	divergence(detail: string): void {
+		if (!shouldLog("warn")) return;
+		outputFn(format("WARN", `ORDER DIVERGENCE: ${detail}`));
+	},
+
+	divergenceWarning(detail: string): void {
+		if (!shouldLog("warn")) return;
+		outputFn(format("WARN", `ORDER DIVERGENCE (grace period): ${detail}`));
+	},
+
+	hedge(positionUsd: number, hedgeUsd: number, deltaUsd: number): void {
+		if (!shouldLog("info")) return;
+		outputFn(
+			format(
+				"INFO",
+				`HEDGE: pos=$${positionUsd.toFixed(2)} hedge=$${hedgeUsd.toFixed(2)} delta=$${deltaUsd.toFixed(2)}`,
+			),
+		);
+	},
+
+	hedgeAction(direction: "long" | "short", amountUsd: number): void {
+		if (!shouldLog("info")) return;
+		outputFn(
+			format(
+				"INFO",
+				`HEDGE ACTION: placing ${direction} $${amountUsd.toFixed(2)} market order to rebalance`,
+			),
+		);
+	},
+
 	shutdown(): void {
 		outputFn(format("INFO", "Shutting down..."));
 	},

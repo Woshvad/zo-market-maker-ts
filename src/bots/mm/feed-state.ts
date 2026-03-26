@@ -27,19 +27,27 @@ export interface FeedStateConfig {
   readonly stalePriceEnabled: boolean;
   readonly haltStaleCount: number;
   readonly haltWindowMs: number;
+  readonly divergenceHaltCount: number;
+  readonly divergenceHaltWindowMs: number;
 }
 
 export interface FeedStateCallbacks {
   readonly onStale: () => void;
   readonly onRecovery: () => void;
   readonly onHalted: (reason: HaltReason) => void;
+  readonly onDivergenceWarning?: () => void;
 }
+
+/** Grace period (ms) after entering QUOTING before divergence can trigger halt */
+const DIVERGENCE_GRACE_PERIOD_MS = 30_000;
 
 export class FeedStateManager {
   private state: FeedState = 'WARMING_UP';
   private lastPriceTime = 0;
   private recoveryCount = 0;
   private staleEvents: number[] = [];
+  private divergenceEvents: number[] = [];
+  private quotingStartTime = 0;
   private readonly config: FeedStateConfig;
   private readonly callbacks: FeedStateCallbacks;
   private readonly now: () => number;
@@ -64,6 +72,7 @@ export class FeedStateManager {
       if (this.recoveryCount >= this.config.recoveryPriceCount) {
         this.recoveryCount = 0;
         this.state = 'QUOTING';
+        this.quotingStartTime = this.now();
         this.callbacks.onRecovery();
       }
     }
@@ -104,7 +113,42 @@ export class FeedStateManager {
   promoteToQuoting(): void {
     if (this.state === 'WARMING_UP') {
       this.state = 'QUOTING';
+      this.quotingStartTime = this.now();
     }
+  }
+
+  /** Record an order divergence event. During grace period, only warns. */
+  onDivergence(): void {
+    if (this.state === 'HALTED') return;
+
+    // Grace period: warn-only during first 30s of QUOTING
+    const elapsed = this.now() - this.quotingStartTime;
+    if (this.quotingStartTime > 0 && elapsed < DIVERGENCE_GRACE_PERIOD_MS) {
+      this.callbacks.onDivergenceWarning?.();
+      return;
+    }
+
+    this.divergenceEvents.push(this.now());
+
+    // Sliding window check
+    const windowStart = this.now() - this.config.divergenceHaltWindowMs;
+    const eventsInWindow = this.divergenceEvents.filter((t) => t > windowStart);
+    this.divergenceEvents = eventsInWindow;
+
+    if (eventsInWindow.length >= this.config.divergenceHaltCount) {
+      this.state = 'HALTED';
+      this.callbacks.onHalted('order_divergence');
+    }
+  }
+
+  getDivergenceInfo(): { count: number; max: number; windowMs: number } {
+    const windowStart = this.now() - this.config.divergenceHaltWindowMs;
+    const eventsInWindow = this.divergenceEvents.filter((t) => t > windowStart);
+    return {
+      count: eventsInWindow.length,
+      max: this.config.divergenceHaltCount,
+      windowMs: this.config.divergenceHaltWindowMs,
+    };
   }
 
   halt(reason: HaltReason): void {

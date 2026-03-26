@@ -11,8 +11,8 @@ import type { Quote } from "../types.js";
 import { log } from "../utils/logger.js";
 
 const MAX_ATOMIC_ACTIONS = 4;
-const DEFAULT_MAX_RETRIES = 3;
-const RETRY_BASE_MS = 500;
+const DEFAULT_MAX_RETRIES = 5;
+const RETRY_BASE_MS = 1000;
 const RETRY_MAX_MS = 5000;
 
 // Cached order info

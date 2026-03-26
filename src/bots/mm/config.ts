@@ -38,13 +38,23 @@ export interface MarketMakerConfig {
   readonly drawdownCooldownEnabled: boolean // Enable order size reduction after losses
   readonly drawdownConsecutiveLossLimit: number // Losing cycles before cooldown (default 5)
   readonly drawdownCooldownSizeMultiplier: number // Order size multiplier in cooldown (default 0.5)
+
+  // Order divergence halt
+  readonly divergenceHaltCount: number // Order divergence events before HALTED
+  readonly divergenceHaltWindowMs: number // Sliding window for counting divergence events (ms)
+
+  // Hedge manager
+  readonly hedgeEnabled: boolean // Enable/disable hedge manager
+  readonly hedgeThresholdUsd: number // Min position size before hedging (default 50)
+  readonly hedgeRatio: number // Fraction to hedge (default 1.0)
+  readonly hedgeSyncIntervalMs: number // How often to check and rebalance (default 5000)
 }
 
 // Default configuration values (symbol must be provided)
 export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   spreadBps: 8,
   takeProfitBps: 0.1,
-  orderSizeUsd: 3000,
+  orderSizeUsd: 20,
   closeThresholdUsd: 10,
   warmupSeconds: 10,
   updateThrottleMs: 100,
@@ -62,7 +72,7 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   volatilitySampleIntervalMs: 60_000,
   volatilityMultiplier: 1.5,
   inventorySkewEnabled: true,
-  maxPositionUsd: 10,
+  maxPositionUsd: 40,
   pnlTrackingEnabled: true,
   maxDailyLossUsd: 15,
   stopLossUsd: 1,
@@ -78,4 +88,14 @@ export const DEFAULT_CONFIG: Omit<MarketMakerConfig, 'symbol'> = {
   drawdownCooldownEnabled: true,
   drawdownConsecutiveLossLimit: 5,
   drawdownCooldownSizeMultiplier: 0.5,
+
+  // Order divergence halt
+  divergenceHaltCount: 3,
+  divergenceHaltWindowMs: 60_000,
+
+  // Hedge manager
+  hedgeEnabled: false,
+  hedgeThresholdUsd: 50,
+  hedgeRatio: 1.0,
+  hedgeSyncIntervalMs: 5000,
 }

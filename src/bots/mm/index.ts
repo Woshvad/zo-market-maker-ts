@@ -33,6 +33,7 @@ import { calculateInventorySkew } from "./inventory-skew.js";
 import { PnlTracker } from "./pnl-tracker.js";
 import { type PositionConfig, PositionTracker } from "./position.js";
 import { Quoter } from "./quoter.js";
+import { HedgeManager } from "./hedge-manager.js";
 import { VolatilityTracker } from "./volatility.js";
 
 export type { MarketMakerConfig } from "./config.js";
@@ -94,6 +95,7 @@ export class MarketMaker {
 	private staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 	private forceCloseInterval: ReturnType<typeof setInterval> | null = null;
 	private telegram: TelegramNotifier | null = null;
+	private hedgeManager: HedgeManager | null = null;
 
 	constructor(
 		private readonly config: MarketMakerConfig,
@@ -129,7 +131,7 @@ export class MarketMaker {
 		);
 
 		this.client = await createZoClient(this.privateKey);
-		const { nord, accountId } = this.client;
+		const { nord, user, accountId } = this.client;
 
 		// Find market by symbol (e.g., "BTC" matches "BTC-PERP")
 		const market = nord.markets.find((m) =>
@@ -272,6 +274,9 @@ export class MarketMaker {
 						process.exit(1);
 					})();
 				},
+				onDivergenceWarning: () => {
+					log.divergenceWarning("within grace period, not counting toward halt");
+				},
 			};
 			this.feedState = new FeedStateManager(
 				{
@@ -280,8 +285,42 @@ export class MarketMaker {
 					stalePriceEnabled: this.config.stalePriceEnabled,
 					haltStaleCount: this.config.haltStaleCount,
 					haltWindowMs: this.config.haltWindowMs,
+					divergenceHaltCount: this.config.divergenceHaltCount,
+					divergenceHaltWindowMs: this.config.divergenceHaltWindowMs,
 				},
 				callbacks,
+			);
+		}
+
+		// Initialize hedge manager (opt-in)
+		if (this.config.hedgeEnabled) {
+			const positionProvider = this.positionTracker;
+			const fairPriceCalc = this.fairPriceCalc;
+			const orderbookStream = this.orderbookStream;
+			if (!positionProvider || !fairPriceCalc || !orderbookStream) {
+				throw new Error("Hedge manager requires position tracker, fair price calculator, and orderbook stream");
+			}
+			this.hedgeManager = new HedgeManager(
+				{
+					hedgeThresholdUsd: this.config.hedgeThresholdUsd,
+					hedgeRatio: this.config.hedgeRatio,
+					hedgeSyncIntervalMs: this.config.hedgeSyncIntervalMs,
+					marketId: this.marketId,
+					sizeDecimals: market.sizeDecimals,
+				},
+				user,
+				positionProvider,
+				{
+					getFairPrice: () => {
+						const binanceMid = this.binanceFeed?.getMidPrice()?.mid;
+						if (!binanceMid) return null;
+						return fairPriceCalc.getFairPrice(binanceMid) ?? null;
+					},
+				},
+				{
+					getBestBid: () => orderbookStream.getBBO()?.bestBid ?? null,
+					getBestAsk: () => orderbookStream.getBBO()?.bestAsk ?? null,
+				},
 			);
 		}
 	}
@@ -488,6 +527,9 @@ export class MarketMaker {
 
 			void this.checkForceClose(fairPrice);
 		}, 1000);
+
+		// Start hedge manager (runs its own interval loop)
+		this.hedgeManager?.start();
 	}
 
 	private registerShutdownHandlers(): void {
@@ -519,6 +561,16 @@ export class MarketMaker {
 		if (this.orderSyncInterval) {
 			clearInterval(this.orderSyncInterval);
 			this.orderSyncInterval = null;
+		}
+
+		// Close hedge position before disconnecting streams
+		if (this.hedgeManager) {
+			this.hedgeManager.stop();
+			try {
+				await this.hedgeManager.closeHedge();
+			} catch (err) {
+				log.error("Hedge shutdown error:", err);
+			}
 		}
 
 		this.binanceFeed?.close();
@@ -629,11 +681,10 @@ export class MarketMaker {
 			);
 			this.activeOrders = result.orders;
 
-			// State divergence detected — trigger safe halt
+			// State divergence detected — report to sliding window tracker
 			if (result.diverged) {
-				log.error("ORDER DIVERGENCE: triggering safe halt due to state inconsistency");
-				await this.telegram?.sendMessage("ORDER DIVERGENCE: halting due to state inconsistency after retries exhausted");
-				this.feedState?.halt("order_divergence");
+				log.divergence("atomic operation failed after retries — local state may not match server");
+				this.feedState?.onDivergence();
 				if (!this.feedState) {
 					this.cancelOrdersAsync();
 					this.isRunning = false;
@@ -793,6 +844,9 @@ export class MarketMaker {
 			cfg["Drawdown Cooldown"] =
 				`${this.config.drawdownConsecutiveLossLimit} losses → ${this.config.drawdownCooldownSizeMultiplier}x size`;
 		}
+		if (this.config.hedgeEnabled) {
+			cfg["Hedge"] = `threshold=$${this.config.hedgeThresholdUsd}, ratio=${this.config.hedgeRatio}, interval=${this.config.hedgeSyncIntervalMs}ms`;
+		}
 		log.config(cfg);
 	}
 
@@ -803,7 +857,8 @@ export class MarketMaker {
 			.then((result) => {
 				this.activeOrders = [];
 				if (result.diverged) {
-					log.error("CANCEL DIVERGENCE: cancel may have failed — orders could still be live on server");
+					log.divergence("cancel may have failed — orders could still be live on server");
+					this.feedState?.onDivergence();
 				}
 			})
 			.catch((err) => {

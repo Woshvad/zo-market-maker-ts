@@ -14,6 +14,8 @@ function makeConfig(overrides: Partial<FeedStateConfig> = {}): FeedStateConfig {
     stalePriceEnabled: true,
     haltStaleCount: 5,
     haltWindowMs: 60_000,
+    divergenceHaltCount: 3,
+    divergenceHaltWindowMs: 60_000,
     ...overrides,
   };
 }
